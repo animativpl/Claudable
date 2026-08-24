@@ -31,7 +31,7 @@ export interface RealtimeStatus {
   metadata?: Record<string, unknown>;
 }
 
-export type StreamTransport = 'sse' | 'websocket';
+export type StreamTransport = 'sse';
 
 export interface ConnectionInfo {
   projectId: string;

@@ -1128,9 +1128,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const processedRequestIds = useRef(new Map<string, string>());
   const pendingMessageIds = useRef(new Set<string>());
 
-  // Transport layer coordination - track message sources
-  const messageSources = useRef<Map<string, 'websocket' | 'sse' | 'optimistic' | 'unknown'>>(new Map());
-
   // Comprehensive debugging system
   const messageLifecycleRef = useRef<Map<string, {
     createdAt: number;
@@ -1185,7 +1182,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     return false;
   }, []);
 
-  const markMessageAsProcessed = useCallback((message: ChatMessage, transport?: 'websocket' | 'sse' | 'optimistic' | 'unknown') => {
+  const markMessageAsProcessed = useCallback((message: ChatMessage, transport?: 'sse' | 'optimistic' | 'unknown') => {
     const source = transport || 'unknown';
     const shouldFinalize = !message.isStreaming || message.isFinal;
 
@@ -1193,7 +1190,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       if (shouldFinalize) {
         processedMessageIds.current.add(message.id);
       }
-      messageSources.current.set(message.id, source);
 
       // Track message lifecycle
       trackMessageLifecycle(message.id, 'processed', {
@@ -1219,7 +1215,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   useEffect(() => {
     const processedIds = processedMessageIds.current;
     const processedRequests = processedRequestIds.current;
-    const sources = messageSources.current;
     const lifecycleMap = messageLifecycleRef.current;
     const pendingIds = pendingMessageIds.current;
 
@@ -1227,7 +1222,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       console.log('🧹 [Cleanup] Cleaning up ChatLog state for project change');
       processedIds.clear();
       processedRequests.clear();
-      sources.clear();
       lifecycleMap.clear();
       pendingIds.clear();
     };
@@ -1261,19 +1255,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       } else {
         return;
       }
-    }
-
-    // Enhanced transport-based duplicate detection
-    if (chatMessage.id) {
-      const existingSource = messageSources.current.get(chatMessage.id);
-      if (existingSource && existingSource !== transportSource) {
-        if (!isFinalUpdate) {
-          console.warn(`[ChatLog] Duplicate streaming message from different transport: ID=${chatMessage.id}, existing=${existingSource}, new=${transportSource}. Skipping interim duplicate.`);
-          return;
-        }
-        console.debug(`[ChatLog] Transport changed for final message ID=${chatMessage.id} (${existingSource} -> ${transportSource}). Accepting final update.`);
-      }
-
     }
 
     if (messageId) {
@@ -2036,31 +2017,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     fallbackMessageIdRef.current.clear();
     visibleToolMessageIdsRef.current.clear();
   }, [projectId]);
-
-  // Handle log entries from other WebSocket data
-  const handleRealtimeLogEntry = (data: any) => {
-    // Filter out system-internal messages that shouldn't be shown to users
-    const internalMessageTypes = [
-      'cli_output',        // CLI execution logs
-      'session_status',    // Session state updates  
-      'status',            // Generic status updates
-      'message',           // Already handled by onMessage
-      'project_status',    // Already handled by onStatus
-      'act_complete'       // Already handled by onStatus
-    ];
-    
-    // Only add to logs if it's not an internal message type
-    if (!internalMessageTypes.includes(data.type)) {
-      const logEntry: LogEntry = {
-        id: `${Date.now()}-${Math.random()}`,
-        type: data.type,
-        data: data.data || data,
-        timestamp: data.timestamp || new Date().toISOString()
-      };
-      
-      setLogs(prev => [...prev, logEntry]);
-    }
-  };
 
   const formatTime = (timestamp: string) => {
     return new Date(timestamp).toLocaleTimeString('en-US', {

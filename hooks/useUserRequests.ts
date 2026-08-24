@@ -159,7 +159,7 @@ export function useUserRequests({ projectId }: UseUserRequestsOptions) {
     };
   }, []);
 
-  // Placeholder functions for WebSocket events (maintaining existing interface)
+  // Track request lifecycle locally and trigger an immediate poll for fresh status
   const createRequest = useCallback((
     requestId: string,
     messageId: string,
