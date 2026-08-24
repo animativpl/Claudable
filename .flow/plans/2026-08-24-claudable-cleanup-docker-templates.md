@@ -460,7 +460,16 @@ Reszta `publish` (enkodowanie SSE, iteracja po kontrolerach, sprzątanie martwyc
 
 W `lib/config/constants.ts` usuń cały blok `export const WEBSOCKET_CONFIG = { ... } as const;` razem z komentarzem `// WebSocket Configuration`.
 
-W `components/modals/CreateProjectModal.tsx:233` usuń odczyt `process.env.NEXT_PUBLIC_WS_BASE` i wyliczanie z niego adresu — modal nie potrzebuje bazy WS. Jeśli wyliczona wartość karmi jakiś fetch, zamień ją na ścieżkę relatywną (`/api/...`), jak w pozostałych wywołaniach w tym pliku.
+W `components/modals/CreateProjectModal.tsx` usuń **cały drugi klient WS**, nie tylko odczyt `NEXT_PUBLIC_WS_BASE`:
+
+1. Funkcję `connectToProjectWebSocket` (~226-312) w całości, razem z jej `resolveWebSocketUrl`, logiką reconnectu i handlerami.
+2. Wywołanie `const wsCleanup = connectToProjectWebSocket(projectUuid);` (~416) i każde późniejsze użycie `wsCleanup`.
+
+**Dlaczego to nie jest samo usunięcie martwego kodu.** Ten klient napędzał UI tworzenia projektu: `setInitializationStep(message)` z granularnym postępem i `handleInitializationComplete()` po `status === 'active'`. Po usunięciu trasy socket nie wstanie, `onclose` odpali pięć prób z backoffem (1+2+4+8+10 ≈ 25 s), a potem ustawi `setInitializationStep('Connection lost. Please refresh the page.')`. Ponieważ `npm install` świeżego projektu trwa dłużej niż 25 s, **każdy nowo tworzony projekt pokazywałby fałszywy błąd**, podczas gdy inicjalizacja leci dalej.
+
+Mechanizm zastępczy **już istnieje i już działa**: polling `GET /api/projects/<id>` co 3 s (~470-500) obsługuje `active` i `failed`, i sam woła `handleInitializationComplete`. Po usunięciu klienta WS zostaje jedynym sterownikiem tego ekranu — i jest tym, który realnie domykał flow, bo socket flapował tak samo jak w czacie.
+
+**Świadomy koszt:** ginie granularny tekst postępu, który przychodził w zdarzeniach `project_status`. Polling pokazuje stałe komunikaty („Setting up environment…", „Project ready! Redirecting…"). Nie odbudowuj tego na SSE w tym zadaniu — jeśli granularny postęp przy tworzeniu projektu okaże się potrzebny, to osobna, mała robota na istniejącym strumieniu.
 
 - [ ] **Step 4: Zwiń SSE z fallbacku w jedyny transport**
 
@@ -484,11 +493,13 @@ npm uninstall ws @types/ws
 
 Run:
 ```bash
-grep -rn "useWebSocket\|websocketManager\|websocket-manager\|WEBSOCKET_CONFIG\|NEXT_PUBLIC_WS_BASE\|ensureHeartbeat\|isConnecting\|enableSseFallback\|recoverMissingMessages\|from 'ws'" --include=*.ts --include=*.tsx app components lib hooks types pages 2>/dev/null
+grep -rnE "useWebSocket|websocketManager|websocket-manager|WEBSOCKET_CONFIG|NEXT_PUBLIC_WS_BASE|ensureHeartbeat|isConnecting|enableSseFallback|recoverMissingMessages|connectToProjectWebSocket|new WebSocket|/api/ws|from 'ws'" --include=*.ts --include=*.tsx app components lib hooks types pages 2>/dev/null
 ```
 Expected: brak wyników (katalog `pages` już nie istnieje, dlatego `2>/dev/null`).
 
 **Grep MUSI obejmować `pages`** — albo potwierdzić, że katalogu nie ma. Pierwotna analiza tej warstwy uznała ją za martwą właśnie dlatego, że grepowała `app components lib hooks types` i pominęła Pages Router.
+
+**I MUSI zawierać `new WebSocket` oraz `/api/ws`.** Pierwsza wersja tego kroku wymieniała tylko nazwy z modułu `websocket-manager` i hooka — a `CreateProjectModal` ma własnego klienta WS, zbudowanego bez żadnej z tych nazw. Grep bez tych dwóch wzorców przechodzi, zostawiając drugi klient celujący w usuniętą trasę.
 
 - [ ] **Step 7: Sprawdź typy, testy i build**
 
