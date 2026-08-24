@@ -23,6 +23,8 @@
 - Chirurgia, nie remont: dotykamy wyłącznie tego, co wynika z zadania. Nie dekomponujemy `app/[project_id]/chat/page.tsx` ani `components/chat/ChatLog.tsx` — mimo rozmiaru.
 - Integracja GitHub zostaje nietknięta (`lib/services/{github,git,tokens}.ts`, `components/modals/GitHubRepoModal.tsx`, model `ServiceToken`).
 - Każde zadanie kończy się commitem. Wiadomości commitów po angielsku, tryb rozkazujący.
+**Zasięg grepów w tym planie jest celowo całodrzewowy, nie listą katalogów.** Cztery razy w tym runie dziurą w weryfikacji była lista katalogów, nie wzorzec: handler WebSocket leżał w `pages/`, którego grep nie obejmował, a domyślne ustawienia z usuniętymi agentami w `contexts/`, którego też nie obejmował. Wzorzec był poprawny za każdym razem. Jeśli dopisujesz własny grep weryfikacyjny, użyj tej samej formy — wykluczenia zamiast allowlisty.
+
 
 ---
 
@@ -493,7 +495,7 @@ npm uninstall ws @types/ws
 
 Run:
 ```bash
-grep -rnE "useWebSocket|websocketManager|websocket-manager|WEBSOCKET_CONFIG|NEXT_PUBLIC_WS_BASE|ensureHeartbeat|isConnecting|enableSseFallback|recoverMissingMessages|connectToProjectWebSocket|new WebSocket|/api/ws|from 'ws'" --include=*.ts --include=*.tsx app components lib hooks types pages 2>/dev/null
+grep -rnE "useWebSocket|websocketManager|websocket-manager|WEBSOCKET_CONFIG|NEXT_PUBLIC_WS_BASE|ensureHeartbeat|isConnecting|enableSseFallback|recoverMissingMessages|connectToProjectWebSocket|new WebSocket|/api/ws|from 'ws'" --include=*.ts --include=*.tsx --include=*.js --include=*.json --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=data --exclude-dir=.flow . 2>/dev/null
 ```
 Expected: brak wyników (katalog `pages` już nie istnieje, dlatego `2>/dev/null`).
 
@@ -593,7 +595,7 @@ W `lib/services/service-integration.ts` usuń gałęzie i mapy dotyczące `verce
 
 Run (grep zawężony do warstwy integracji):
 ```bash
-grep -rniE "(from|import).*(vercel|supabase)|VercelProjectModal|SupabaseModal|services/vercel|services/supabase" --include=*.ts --include=*.tsx app components lib hooks types
+grep -rniE "(from|import).*(vercel|supabase)|VercelProjectModal|SupabaseModal|services/vercel|services/supabase" --include=*.ts --include=*.tsx --include=*.js --include=*.json --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=data --exclude-dir=.flow .
 ```
 Expected: brak wyników. Osobno usuń link `vercel.com/templates` z treści strony szablonu w `lib/utils/scaffold.ts` — Task 16 przenosi ten plik i zakłada, że linku już nie ma.
 
@@ -725,7 +727,7 @@ W `app/api/chat/[project_id]/act/route.ts`:
 
 Run:
 ```bash
-grep -rn "codexModels\|cursorModels\|qwenModels\|glmModels\|cli/codex\|cli/cursor\|cli/qwen\|cli/glm" --include=*.ts --include=*.tsx app components lib hooks types scripts
+grep -rn "codexModels\|cursorModels\|qwenModels\|glmModels\|cli/codex\|cli/cursor\|cli/qwen\|cli/glm" --include=*.ts --include=*.tsx --include=*.js --include=*.json --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=data --exclude-dir=.flow .
 ```
 Expected: brak wyników. Nazwy agentów jako **wartości** (`'codex'` w `CLI_OPTIONS`, badge'e w UI) zostają do Task 6 — nie goń ich tutaj.
 
@@ -831,13 +833,13 @@ Bez tego kroku `type-check` w kroku 7 padnie na zerwanym imporcie. Task 15 przep
 
 Run:
 ```bash
-grep -rn "useCLI\|cliOptions\|ACTIVE_CLI\|CLI_OPTIONS\|preferredCli\|preferred_cli\|fallbackEnabled\|fallback_enabled\|cli-preference" --include=*.ts --include=*.tsx app components lib hooks types
+grep -rn "useCLI\|cliOptions\|ACTIVE_CLI\|CLI_OPTIONS\|preferredCli\|preferred_cli\|fallbackEnabled\|fallback_enabled\|cli-preference" --include=*.ts --include=*.tsx --include=*.js --include=*.json --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=data --exclude-dir=.flow .
 ```
 Expected: brak wyników
 
 Run (powtórka grepu z Task 5, teraz musi być czysty):
 ```bash
-grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" --include=*.ts --include=*.tsx app components lib hooks types scripts
+grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" --include=*.ts --include=*.tsx --include=*.js --include=*.json --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=data --exclude-dir=.flow .
 ```
 Expected: brak wyników
 
@@ -3889,7 +3891,7 @@ Zachowaj wyliczenia `resolvedModel`, `modelLabel` i `aliasNote` — są używane
 
 Run:
 ```bash
-grep -rn "📸\|🖼️\|🔄 \[HandlerSetup\]" --include=*.ts --include=*.tsx app components lib
+grep -rn "📸\|🖼️\|🔄 \[HandlerSetup\]" --include=*.ts --include=*.tsx --include=*.js --include=*.json --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=data --exclude-dir=.flow .
 ```
 Expected: brak wyników
 
