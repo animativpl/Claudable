@@ -4,5 +4,4 @@
  */
 
 export * from './project';
-export type { GlobalSettings, CLIConfig, CreateProjectCLIOption } from './modal';
 export * from '../shared';
