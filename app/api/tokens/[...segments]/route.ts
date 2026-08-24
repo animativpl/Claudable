@@ -11,7 +11,7 @@ interface RouteContext {
 }
 
 function isProvider(value: string): boolean {
-  return value === 'github' || value === 'supabase' || value === 'vercel';
+  return value === 'github';
 }
 
 export async function GET(request: NextRequest, { params }: RouteContext) {

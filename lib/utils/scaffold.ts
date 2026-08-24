@@ -172,20 +172,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           Learn →
         </a>
         <a
-          href="https://vercel.com/templates"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            textDecoration: 'none',
-            color: 'inherit',
-          }}
-        >
-          Examples →
-        </a>
-        <a
           href="https://nextjs.org"
           target="_blank"
           rel="noopener noreferrer"

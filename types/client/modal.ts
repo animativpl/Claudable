@@ -29,8 +29,6 @@ export interface GlobalSettings {
   apiKeys?: {
     anthropic?: string;
     github?: string;
-    vercel?: string;
-    supabase?: string;
   };
   preferences?: {
     theme?: 'light' | 'dark' | 'system';

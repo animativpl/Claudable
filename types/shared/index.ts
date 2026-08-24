@@ -8,4 +8,3 @@ export * from './cli';
 export * from './chat';
 export * from './service';
 export * from './github';
-export * from './vercel';

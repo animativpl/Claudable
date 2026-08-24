@@ -14,7 +14,5 @@ export interface Project extends BaseProject {
   lastMessageAt?: string | null;
   services?: {
     github?: ServiceConnection;
-    supabase?: ServiceConnection;
-    vercel?: ServiceConnection;
   };
 }

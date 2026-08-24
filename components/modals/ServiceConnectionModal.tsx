@@ -7,7 +7,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 interface ServiceConnectionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  provider: 'github' | 'supabase' | 'vercel';
+  provider: 'github';
   projectId?: string;
 }
 
@@ -149,76 +149,6 @@ export default function ServiceConnectionModal({
     }
   };
 
-  const handleSupabaseAction = async (action: string) => {
-    if (!savedToken || !projectId) return;
-    
-    setActionLoading(true);
-    try {
-      if (action === 'create-project') {
-        const dbPass = prompt('Enter database password for new Supabase project:');
-        if (!dbPass) return;
-        
-        const response = await fetch(`${API_BASE}/api/supabase/create-project`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token_id: savedToken.id,
-            project_id: projectId,
-            project_name: `cc-lovable-${projectId}`,
-            db_pass: dbPass,
-            region: 'us-east-1'
-          })
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          alert(`Supabase project created: ${data.name}`);
-        } else {
-          const error = await response.text();
-          alert(`Failed to create project: ${error}`);
-        }
-      }
-    } catch (error) {
-      console.error('Supabase action failed:', error);
-      alert('Supabase action failed. Please check your token.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleVercelAction = async (action: string) => {
-    if (!savedToken || !projectId) return;
-    
-    setActionLoading(true);
-    try {
-      if (action === 'deploy') {
-        const response = await fetch(`${API_BASE}/api/projects/${projectId}/vercel/deploy`, {
-          method: 'POST'
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const deploymentUrl = data.deployment_url ?? data.url ?? null;
-          const status = data.status ?? 'queued';
-          if (deploymentUrl) {
-            const formatted = deploymentUrl.startsWith('http') ? deploymentUrl : `https://${deploymentUrl}`;
-            alert(`Deployment ${status}.\nURL: ${formatted}`);
-          } else {
-            alert(`Deployment ${status}.`);
-          }
-        } else {
-          const error = await response.text();
-          alert(`Failed to deploy: ${error}`);
-        }
-      }
-    } catch (error) {
-      console.error('Vercel action failed:', error);
-      alert('Vercel action failed. Please check your token.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const getProviderInfo = () => {
     switch (provider) {
       case 'github':
@@ -242,56 +172,6 @@ export default function ServiceConnectionModal({
             "Paste the token below and click 'Save Token'"
           ],
           actions: ['create-repo']
-        };
-      case 'supabase':
-        return {
-          title: 'Supabase',
-          description: 'Connect with your Supabase Personal Access Token to manage projects and databases',
-          tokenUrl: 'https://supabase.com/dashboard/account/tokens',
-          tokenName: 'Personal Access Token',
-          icon: (
-            <svg width="32" height="32" viewBox="0 0 109 113" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#paint0_linear)"/>
-              <path d="M45.317 2.07103C48.1765 -1.53037 53.9745 0.442937 54.0434 5.041L54.4849 72.2922H9.83113C1.64038 72.2922 -2.92775 62.8321 2.1655 56.4175L45.317 2.07103Z" fill="#3ECF8E"/>
-              <defs>
-                <linearGradient id="paint0_linear" x1="53.9738" y1="54.974" x2="94.1635" y2="71.8295" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#249361"/>
-                  <stop offset="1" stopColor="#3ECF8E"/>
-                </linearGradient>
-              </defs>
-            </svg>
-          ),
-          instructions: [
-            "Go to Supabase Dashboard → Account → Access Tokens",
-            "Click 'Generate new token'",
-            "Enter a descriptive name (e.g., 'Clovable Integration')",
-            "Select appropriate expiration date (or no expiration for development)",
-            "Click 'Generate token' and copy it immediately",
-            "Paste the token below and click 'Save Token'"
-          ],
-          actions: ['create-project']
-        };
-      case 'vercel':
-        return {
-          title: 'Vercel',
-          description: 'Connect with your Vercel API Token to deploy projects and manage domains',
-          tokenUrl: 'https://vercel.com/account/tokens',
-          tokenName: 'API Token',
-          icon: (
-            <svg width="32" height="32" viewBox="0 0 76 65" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor"/>
-            </svg>
-          ),
-          instructions: [
-            "Go to Vercel Dashboard → Settings → Tokens",
-            "Click 'Create Token'",
-            "Enter a descriptive name (e.g., 'Clovable Integration')",
-            "Select appropriate scope (recommend 'Full Access' for development)",
-            "Set expiration date or select 'No Expiration'",
-            "Click 'Create Token' and copy the token immediately",
-            "Paste the token below and click 'Save Token'"
-          ],
-          actions: ['deploy']
         };
     }
   };
@@ -377,24 +257,6 @@ export default function ServiceConnectionModal({
                         className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                       >
                         {actionLoading ? 'Creating Repository...' : 'Create GitHub Repository'}
-                      </button>
-                    )}
-                    {provider === 'supabase' && (
-                      <button
-                        onClick={() => handleSupabaseAction('create-project')}
-                        disabled={actionLoading}
-                        className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        {actionLoading ? 'Creating Project...' : 'Create Supabase Project'}
-                      </button>
-                    )}
-                    {provider === 'vercel' && (
-                      <button
-                        onClick={() => handleVercelAction('deploy')}
-                        disabled={actionLoading}
-                        className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        {actionLoading ? 'Deploying...' : 'Deploy to Vercel'}
                       </button>
                     )}
                   </div>

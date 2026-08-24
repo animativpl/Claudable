@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db/client';
 
-const SUPPORTED_PROVIDERS = ['github', 'supabase', 'vercel'] as const;
+const SUPPORTED_PROVIDERS = ['github'] as const;
 export type ServiceProvider = (typeof SUPPORTED_PROVIDERS)[number];
 
 interface ServiceTokenRecord {

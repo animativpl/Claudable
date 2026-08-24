@@ -32,8 +32,6 @@ export interface Project {
   initialPrompt?: string | null;
   services?: {
     github?: ServiceConnection;
-    supabase?: ServiceConnection;
-    vercel?: ServiceConnection;
   };
   preferredCli?: CLIType | null;
   selectedModel?: string | null;
