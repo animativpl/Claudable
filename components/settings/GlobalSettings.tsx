@@ -36,16 +36,9 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
   const [tokens, setTokens] = useState<{ [key: string]: ServiceToken | null }>({
     github: null
   });
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const { settings: globalSettings, setSettings: setGlobalSettings, refresh: refreshGlobalSettings } = useGlobalSettings();
   const [isLoading, setIsLoading] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  // Show toast function
-  const showToast = (message: string, type: 'success' | 'error') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const loadAllTokens = useCallback(async () => {
     const providers = ['github'];
@@ -494,22 +487,6 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
           onClose={handleServiceModalClose}
           provider={selectedProvider}
         />
-      )}
-
-      {/* Toast notification */}
-      {toast && (
-        <div className={`fixed bottom-4 right-4 z-[80] px-4 py-3 rounded-lg shadow-2xl transition-all transform animate-slide-in-up ${
-          toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
-        }`}>
-          <div className="flex items-center gap-2">
-            {toast.type === 'success' && (
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            )}
-            <span className="font-medium">{toast.message}</span>
-          </div>
-        </div>
       )}
     </AnimatePresence>
   );
