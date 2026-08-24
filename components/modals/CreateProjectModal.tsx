@@ -230,11 +230,7 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     let socket: WebSocket | null = null;
 
     const resolveWebSocketUrl = () => {
-      const base = process.env.NEXT_PUBLIC_WS_BASE?.trim() ?? '';
       const endpoint = `/api/ws/${projectId}`;
-      if (base.length > 0) {
-        return `${base.replace(/\/+$/, '')}${endpoint}`;
-      }
       if (typeof window !== 'undefined') {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${protocol}//${window.location.host}${endpoint}`;

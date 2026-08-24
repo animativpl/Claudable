@@ -2,7 +2,6 @@
 import React, { useEffect, useState, useRef, ReactElement, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
-import { useWebSocket } from '@/hooks/useWebSocket';
 import { Brain } from 'lucide-react';
 import ToolResultItem from './ToolResultItem';
 import ThinkingSection from './ThinkingSection';
@@ -1011,9 +1010,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const logsEndRef = useRef<HTMLDivElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedInitialDataRef = useRef(false);
-  const sseFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasLoggedSseFallbackRef = useRef(false);
-  const [enableSseFallback, setEnableSseFallback] = useState(false);
   const [isSseConnected, setIsSseConnected] = useState(false);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [expandedToolMessages, setExpandedToolMessages] = useState<Record<string, ToolExpansionState>>({});
@@ -1134,7 +1130,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
   // Transport layer coordination - track message sources
   const messageSources = useRef<Map<string, 'websocket' | 'sse' | 'optimistic' | 'unknown'>>(new Map());
-  const activeTransport = useRef<'websocket' | 'sse' | null>(null);
 
   // Comprehensive debugging system
   const messageLifecycleRef = useRef<Map<string, {
@@ -1191,7 +1186,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   }, []);
 
   const markMessageAsProcessed = useCallback((message: ChatMessage, transport?: 'websocket' | 'sse' | 'optimistic' | 'unknown') => {
-    const source = transport || activeTransport.current || 'unknown';
+    const source = transport || 'unknown';
     const shouldFinalize = !message.isStreaming || message.isFinal;
 
     if (message.id) {
@@ -1218,7 +1213,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       processedRequestIds.current.set(message.requestId, message.id || '');
       console.debug(`[ChatLog] Marked message as processed by RequestId: ${message.requestId} -> ${message.id}`);
     }
-  }, [activeTransport, trackMessageLifecycle]);
+  }, [trackMessageLifecycle]);
 
   // Cleanup processed IDs when project changes to prevent memory leaks
   useEffect(() => {
@@ -1235,41 +1230,12 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       sources.clear();
       lifecycleMap.clear();
       pendingIds.clear();
-      activeTransport.current = null;
     };
   }, [projectId]);
 
-  // Message recovery mechanism for network interruptions
-  const recoverMissingMessages = useCallback(async () => {
-    if (!projectId) return;
-
-    try {
-      console.log('[ChatLog] Checking for missing messages due to network interruption...');
-
-      // Get current message count from UI state
-      const currentMessageCount = messages.length;
-
-      // Get actual message count from database
-      const response = await fetch(`/api/chat/${projectId}/messages?limit=1&offset=0`);
-      if (!response.ok) return;
-
-      const data = await response.json();
-      const totalMessages = data.totalCount || 0;
-
-      // If database has more messages than UI state, trigger a reload flag
-      if (totalMessages > currentMessageCount) {
-        console.log(`[ChatLog] Detected ${totalMessages - currentMessageCount} missing messages. Setting reload flag...`);
-        // Set a flag to trigger reload in the polling effect
-        setHasLoadedOnce(false);
-      }
-    } catch (error) {
-      console.error('[ChatLog] Error checking for missing messages:', error);
-    }
-  }, [projectId, messages.length]);
-
   const handleRealtimeMessage = useCallback((message: unknown) => {
     const chatMessage = toChatMessage(message);
-    const transportSource = activeTransport.current || 'unknown';
+    const transportSource = 'sse';
     const messageId = chatMessage.id ?? null;
 
     console.debug(`[ChatLog] Received realtime message: ID=${chatMessage.id}, Role=${chatMessage.role}, Type=${chatMessage.messageType}, RequestId=${chatMessage.requestId}, Streaming=${chatMessage.isStreaming}, Transport=${transportSource}`);
@@ -1389,7 +1355,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     setIsWaitingForResponse,
     isMessageProcessed,
     markMessageAsProcessed,
-    activeTransport,
     trackMessageLifecycle,
     ensureStableMessageId,
   ]);
@@ -1432,7 +1397,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
   const handleRealtimeError = useCallback((error: Error) => {
     console.error('🔌 [Realtime] Error:', error);
-    setEnableSseFallback(true);
   }, []);
 
   const handleRealtimeEnvelope = useCallback(
@@ -1506,76 +1470,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     [handleRealtimeMessage, handleRealtimeStatus, handleRealtimeError]
   );
 
-  // Use the centralized WebSocket hook (with SSE fallback defined below)
-  const { isConnected, isConnecting } = useWebSocket({
-    projectId,
-    onMessage: handleRealtimeMessage,
-    onStatus: handleRealtimeStatus,
-    onConnect: () => {
-      console.log('🔌 [Transport] WebSocket connected, switching to WebSocket transport');
-      setEnableSseFallback(false);
-      hasLoggedSseFallbackRef.current = false;
-      onSseFallbackActive?.(false);
-      activeTransport.current = 'websocket';
-      if (sseFallbackTimerRef.current) {
-        clearTimeout(sseFallbackTimerRef.current);
-        sseFallbackTimerRef.current = null;
-      }
-      // Recover any missing messages that might have been lost during disconnection
-      recoverMissingMessages();
-    },
-    onDisconnect: () => {
-      console.log('🔌 [Transport] WebSocket disconnected, preparing SSE fallback');
-      setEnableSseFallback(true);
-      activeTransport.current = null; // Reset transport to allow SSE to take over
-    },
-    onError: handleRealtimeError,
-  });
-
-  useEffect(() => {
-    if (isConnected) {
-      setEnableSseFallback(false);
-      hasLoggedSseFallbackRef.current = false;
-      onSseFallbackActive?.(false);
-      if (sseFallbackTimerRef.current) {
-        clearTimeout(sseFallbackTimerRef.current);
-        sseFallbackTimerRef.current = null;
-      }
-      return;
-    }
-
-    if (isConnecting) {
-      if (sseFallbackTimerRef.current) {
-        clearTimeout(sseFallbackTimerRef.current);
-        sseFallbackTimerRef.current = null;
-      }
-      return () => {
-        if (sseFallbackTimerRef.current) {
-          clearTimeout(sseFallbackTimerRef.current);
-          sseFallbackTimerRef.current = null;
-        }
-      };
-    }
-
-    if (sseFallbackTimerRef.current) {
-      clearTimeout(sseFallbackTimerRef.current);
-    }
-
-    sseFallbackTimerRef.current = setTimeout(() => {
-      setEnableSseFallback((previous) => previous || true);
-    }, 2500);
-
-    return () => {
-      if (sseFallbackTimerRef.current) {
-        clearTimeout(sseFallbackTimerRef.current);
-        sseFallbackTimerRef.current = null;
-      }
-    };
-  }, [isConnected, isConnecting, onSseFallbackActive]);
-
   useEffect(() => {
     if (!projectId) return;
-    if (!enableSseFallback) return;
     if (typeof window === 'undefined') {
       return;
     }
@@ -1602,19 +1498,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       if (disposed) return;
 
       try {
-        if (!hasLoggedSseFallbackRef.current) {
-          console.warn('🔄 [Transport] WebSocket unavailable, switching to SSE transport');
-          hasLoggedSseFallbackRef.current = true;
-        }
-
-        // Only activate SSE if WebSocket is not connected
-        if (activeTransport.current === 'websocket') {
-          console.log('🔄 [Transport] WebSocket is active, skipping SSE connection');
-          return;
-        }
-
-        activeTransport.current = 'sse';
-
         const streamUrl = resolveStreamUrl();
         let source: EventSource;
         try {
@@ -1632,9 +1515,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         source.onopen = () => {
           console.log('🔄 [Transport] SSE connection established');
           setIsSseConnected(true);
-          onSseFallbackActive?.(true);
-          // Recover any missing messages that might have been lost during SSE disconnection
-          recoverMissingMessages();
+          onSseFallbackActive?.(false);
         };
 
         source.onmessage = (event) => {
@@ -1680,16 +1561,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         clearTimeout(reconnectTimer);
       }
     };
-  }, [projectId, enableSseFallback, handleRealtimeEnvelope, onSseFallbackActive, recoverMissingMessages]);
-
-  useEffect(() => {
-    return () => {
-      if (sseFallbackTimerRef.current) {
-        clearTimeout(sseFallbackTimerRef.current);
-        sseFallbackTimerRef.current = null;
-      }
-    };
-  }, []);
+  }, [projectId, handleRealtimeEnvelope, onSseFallbackActive]);
 
   const scrollToBottom = () => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -2071,8 +1943,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   useEffect(() => {
     if (!projectId) return;
 
-    // Don't poll if we have active real-time connections
-    if (isConnected || isSseConnected) {
+    // Don't poll if we have an active real-time connection
+    if (isSseConnected) {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -2088,8 +1960,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       return;
     }
 
-    // Only poll when both WebSocket and SSE are disconnected
-    const shouldPoll = !isConnected && !isSseConnected && enableSseFallback;
+    // Only poll when SSE is disconnected
+    const shouldPoll = !isSseConnected;
 
     if (!shouldPoll) {
       if (pollIntervalRef.current) {
@@ -2106,8 +1978,8 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
     pollIntervalRef.current = setInterval(() => {
       // Double-check connection status before polling
-      if (isConnected || isSseConnected) {
-        console.debug(`[ChatLog] Stopping polling due to active connection: WebSocket=${isConnected}, SSE=${isSseConnected}`);
+      if (isSseConnected) {
+        console.debug(`[ChatLog] Stopping polling due to active connection: SSE=${isSseConnected}`);
         if (pollIntervalRef.current) {
           clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
@@ -2128,7 +2000,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         pollIntervalRef.current = null;
       }
     };
-  }, [projectId, isConnected, isSseConnected, enableSseFallback, messages, loadChatHistory]);
+  }, [projectId, isSseConnected, messages, loadChatHistory]);
 
   // Initial load
   useEffect(() => {
@@ -2166,7 +2038,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   }, [projectId]);
 
   // Handle log entries from other WebSocket data
-  const handleWebSocketData = (data: any) => {
+  const handleRealtimeLogEntry = (data: any) => {
     // Filter out system-internal messages that shouldn't be shown to users
     const internalMessageTypes = [
       'cli_output',        // CLI execution logs

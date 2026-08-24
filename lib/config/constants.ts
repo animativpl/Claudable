@@ -13,15 +13,6 @@ export const PREVIEW_CONFIG = {
   HEALTH_CHECK_INTERVAL: 2000, // 2 seconds
 } as const;
 
-// WebSocket Configuration
-export const WEBSOCKET_CONFIG = {
-  MAX_RECONNECT_ATTEMPTS: 10,
-  BASE_RECONNECT_DELAY: 1000, // 1 second
-  MAX_RECONNECT_DELAY: 30000, // 30 seconds
-  HEARTBEAT_INTERVAL: 30000, // 30 seconds
-  CONNECTION_TIMEOUT: 10000, // 10 seconds
-} as const;
-
 // Stream Manager Configuration
 export const STREAM_CONFIG = {
   INACTIVE_CONNECTION_TIMEOUT: 3600000, // 1 hour
