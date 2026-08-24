@@ -222,95 +222,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
   const selectedCLIOption = enabledCLIs.find(cli => cli.id === selectedCLI);
   const selectedModelOption = selectedCLIOption?.models.find(model => model.id === selectedModel);
 
-  // WebSocket connection for project initialization
-  const connectToProjectWebSocket = (projectId: string) => {
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    let reconnectTimeout: NodeJS.Timeout | null = null;
-    let socket: WebSocket | null = null;
-
-    const resolveWebSocketUrl = () => {
-      const endpoint = `/api/ws/${projectId}`;
-      if (typeof window !== 'undefined') {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}${endpoint}`;
-      }
-      throw new Error('Unable to resolve WebSocket URL');
-    };
-
-    const connect = () => {
-      try {
-        socket = new WebSocket(resolveWebSocketUrl());
-      } catch (error) {
-        console.error('Failed to initialize project WebSocket:', error);
-        socket = null;
-        return;
-      }
-
-      socket.onopen = () => {
-        reconnectAttempts = 0;
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-
-          if (data.type === 'project_status') {
-            const { status, message } = data.data || data;
-            console.log('📊 Project status received:', status, message);
-
-            if (message) {
-              setInitializationStep(message);
-            }
-
-            if (status === 'active') {
-              setTimeout(() => {
-                socket?.close();
-                handleInitializationComplete(projectId);
-              }, 1000);
-            } else if (status === 'failed') {
-              setInitializationStep('Project initialization failed');
-              setTimeout(() => {
-                socket?.close();
-                setShowInitialization(false);
-                setInitializingProjectId(null);
-              }, 3000);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
-
-      socket.onclose = (event) => {
-        if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
-          reconnectAttempts += 1;
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000);
-          console.log(`🔄 Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
-          reconnectTimeout = setTimeout(connect, delay);
-        } else if (reconnectAttempts >= maxReconnectAttempts) {
-          console.error('❌ Max reconnection attempts reached. Please refresh the page.');
-          setInitializationStep('Connection lost. Please refresh the page.');
-        }
-      };
-
-      socket.onerror = (error) => {
-        console.error('❌ Initialization WebSocket error:', error);
-      };
-    };
-
-    connect();
-
-    return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-        socket.close(1000, 'Component unmounting');
-      }
-    };
-  };
-
   // Handle successful initialization completion
   const handleInitializationComplete = (projectId: string) => {
     // Store the initial prompt before resetting
@@ -412,9 +323,6 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
     setInitializationStep('Preparing project...');
     setInitializingProjectId(projectUuid);
     
-    // 2. Start WebSocket connection
-    const wsCleanup = connectToProjectWebSocket(projectUuid);
-    
     try {
       const projectData: any = {
         project_id: projectUuid,
@@ -461,11 +369,11 @@ export default function CreateProjectModal({ open, onClose, onCreated, onOpenGlo
         return;
       }
       
-      // 4. On success, wait for real-time progress via WebSocket
+      // 4. On success, wait for progress via polling
       setInitializationStep('Setting up environment...');
       onCreated();
-      
-      // Add fallback timeout and polling mechanism in case WebSocket doesn't respond
+
+      // Add fallback timeout and polling mechanism to track initialization progress
       let pollInterval: NodeJS.Timeout | null = null;
       
       // Start polling project status as a fallback
