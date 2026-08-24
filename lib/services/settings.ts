@@ -18,18 +18,6 @@ const DEFAULT_SETTINGS: GlobalSettings = {
     claude: {
       model: getDefaultModelForCli('claude'),
     },
-    codex: {
-      model: getDefaultModelForCli('codex'),
-    },
-    cursor: {
-      model: getDefaultModelForCli('cursor'),
-    },
-    qwen: {
-      model: getDefaultModelForCli('qwen'),
-    },
-    glm: {
-      model: getDefaultModelForCli('glm'),
-    },
   },
 };
 

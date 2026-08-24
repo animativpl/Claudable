@@ -10,11 +10,7 @@ import {
   updateProjectActivity,
 } from '@/lib/services/project';
 import { createMessage } from '@/lib/services/message';
-import { initializeNextJsProject as initializeClaudeProject, applyChanges as applyClaudeChanges } from '@/lib/services/cli/claude';
-import { initializeNextJsProject as initializeCodexProject, applyChanges as applyCodexChanges } from '@/lib/services/cli/codex';
-import { initializeNextJsProject as initializeCursorProject, applyChanges as applyCursorChanges } from '@/lib/services/cli/cursor';
-import { initializeNextJsProject as initializeQwenProject, applyChanges as applyQwenChanges } from '@/lib/services/cli/qwen';
-import { initializeNextJsProject as initializeGLMProject, applyChanges as applyGLMChanges } from '@/lib/services/cli/glm';
+import { initializeNextJsProject, applyChanges } from '@/lib/services/cli/claude';
 import { getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
 import { streamManager } from '@/lib/services/stream';
 import type { ChatActRequest } from '@/types/backend';
@@ -275,19 +271,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       );
     }
 
-    const cliPreferenceRaw =
-      coerceString((body as Record<string, unknown>).cliPreference) ??
-      coerceString(legacyBody['cli_preference']) ??
-      project.preferredCli ??
-      'claude';
-    const cliPreference = cliPreferenceRaw.toLowerCase();
-
     const selectedModelRaw =
       coerceString(body.selectedModel) ??
       coerceString(legacyBody['selected_model']) ??
       project.selectedModel ??
-      getDefaultModelForCli(cliPreference);
-    const selectedModel = normalizeModelId(cliPreference, selectedModelRaw);
+      getDefaultModelForCli(null);
+    const selectedModel = normalizeModelId(null, selectedModelRaw);
 
     const conversationId =
       coerceString(body.conversationId) ?? coerceString(legacyBody['conversation_id']);
@@ -328,7 +317,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       messageType: 'chat',
       content: finalInstruction,
       conversationId: conversationId ?? undefined,
-      cliSource: cliPreference,
+      cliSource: 'claude',
       metadata,
       requestId: requestId,
     });
@@ -353,7 +342,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           id: requestId,
           projectId: project_id,
           instruction: storedInstruction || finalInstruction,
-          cliPreference,
+          cliPreference: 'claude',
         });
         await markUserRequestAsProcessing(requestId);
       } catch (error) {
@@ -370,19 +359,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     const projectPath = project.repoPath || path.join(process.cwd(), 'projects', project_id);
 
-    const existingSelected = normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined);
-
-    if (
-      project.preferredCli !== cliPreference ||
-      existingSelected !== selectedModel
-    ) {
+    const existingSelected = normalizeModelId(null, project.selectedModel ?? undefined);
+    if (existingSelected !== selectedModel) {
       try {
-        await updateProject(project_id, {
-          preferredCli: cliPreference,
-          selectedModel,
-        });
+        await updateProject(project_id, { selectedModel });
       } catch (error) {
-        console.error('[API] Failed to persist project CLI/model settings:', error);
+        console.error('[API] Failed to persist project model:', error);
       }
     }
 
@@ -398,18 +380,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     if (isInitialPrompt) {
-      const executor =
-        cliPreference === 'codex'
-          ? initializeCodexProject
-          : cliPreference === 'cursor'
-          ? initializeCursorProject
-          : cliPreference === 'qwen'
-          ? initializeQwenProject
-          : cliPreference === 'glm'
-          ? initializeGLMProject
-          : initializeClaudeProject;
-
-      executor(
+      initializeNextJsProject(
         project_id,
         projectPath,
         finalInstruction,
@@ -419,30 +390,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         console.error('[API] Failed to initialize project:', error);
       });
     } else {
-      const executor =
-        cliPreference === 'codex'
-          ? applyCodexChanges
-          : cliPreference === 'cursor'
-          ? applyCursorChanges
-          : cliPreference === 'qwen'
-          ? applyQwenChanges
-          : cliPreference === 'glm'
-          ? applyGLMChanges
-          : applyClaudeChanges;
-
-      const sessionId =
-        cliPreference === 'claude'
-          ? project.activeClaudeSessionId || undefined
-          : cliPreference === 'cursor'
-          ? project.activeCursorSessionId || undefined
-          : undefined;
-
-      executor(
+      applyChanges(
         project_id,
         projectPath,
         finalInstruction,
         selectedModel,
-        sessionId,
+        project.activeClaudeSessionId || undefined,
         requestId,
       ).catch((error) => {
         console.error('[API] Failed to execute AI:', error);
