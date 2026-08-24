@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { purgeLegacyProviders } from '../../scripts/migrate-drop-legacy.js';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { purgeLegacyProviders, resolveDbPath } from '../../scripts/migrate-drop-legacy.js';
 
 type Row = { provider: string };
 
@@ -49,5 +50,33 @@ describe('purgeLegacyProviders', () => {
       serviceToken: fakeTable(tokens),
     });
     expect(tokens).toHaveLength(1);
+  });
+});
+
+describe('resolveDbPath', () => {
+  const repoRoot = path.resolve(__dirname, '..', '..');
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+
+  afterEach(() => {
+    if (originalDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+  });
+
+  it('rozwiązuje ścieżkę względną (file:../data/cc.db) względem katalogu prisma/', () => {
+    delete process.env.DATABASE_URL;
+    expect(resolveDbPath('file:../data/cc.db')).toBe(path.join(repoRoot, 'data', 'cc.db'));
+  });
+
+  it('zwraca ścieżkę absolutną bez zmian (kontener: file:/data/cc.db)', () => {
+    delete process.env.DATABASE_URL;
+    expect(resolveDbPath('file:/data/cc.db')).toBe('/data/cc.db');
+  });
+
+  it('używa domyślnej ścieżki, gdy DATABASE_URL nie jest ustawione', () => {
+    delete process.env.DATABASE_URL;
+    expect(resolveDbPath()).toBe(path.join(repoRoot, 'data', 'cc.db'));
   });
 });

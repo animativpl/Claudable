@@ -9,6 +9,45 @@ const path = require('path');
 
 const LEGACY_PROVIDERS = ['vercel', 'supabase'];
 
+// Zgodne z .env: Prisma dla SQLite rozwiązuje ścieżki relatywne w `file:`
+// względem katalogu prisma/, nie względem cwd ani __dirname skryptu.
+const PRISMA_DIR = path.join(__dirname, '..', 'prisma');
+const DEFAULT_DATABASE_URL = 'file:../data/cc.db';
+
+/**
+ * Wydzielone, żeby `db:backup` i migracja liczyły ścieżkę bazy w jednym
+ * miejscu. `DATABASE_URL` w kontenerze bywa absolutne (`file:/data/cc.db`),
+ * a lokalnie relatywne (`file:../data/cc.db`) — Prisma dla SQLite rozwiązuje
+ * to drugie względem `prisma/`, więc robimy to samo.
+ */
+function resolveDbPath(databaseUrl) {
+  const url = databaseUrl ?? process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
+  const filePath = url.replace(/^file:/, '');
+  return path.isAbsolute(filePath) ? filePath : path.resolve(PRISMA_DIR, filePath);
+}
+
+/** Kopiuje bazę do `<katalog bazy>/backups/cc_backup_<znacznik czasu>.db`. */
+function backupDatabase(dbPath) {
+  const backupDir = path.join(path.dirname(dbPath), 'backups');
+  fs.mkdirSync(backupDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = path.join(backupDir, `cc_backup_${stamp}.db`);
+  fs.copyFileSync(dbPath, backupPath);
+  return backupPath;
+}
+
+/** Logika `npm run db:backup` — brak bazy to błąd, nie cichy sukces. */
+function runBackupCli() {
+  const dbPath = resolveDbPath();
+  if (!fs.existsSync(dbPath)) {
+    console.error(`❌ No database found at ${dbPath} — nothing to back up.`);
+    process.exit(1);
+    return;
+  }
+  const backupPath = backupDatabase(dbPath);
+  console.log(`backup: ${backupPath}`);
+}
+
 /**
  * Wydzielone, żeby dało się przetestować bez prawdziwej bazy.
  * Czyści OBIE tabele niosące providera. Po zawężeniu `isProvider` w Task 4
@@ -29,15 +68,16 @@ async function purgeLegacyProviders(client) {
 async function main() {
   const { PrismaClient } = require('@prisma/client');
 
-  const dbPath = path.join(__dirname, '..', 'data', 'cc.db');
-  if (fs.existsSync(dbPath)) {
-    const backupDir = path.join(__dirname, '..', 'data', 'backups');
-    fs.mkdirSync(backupDir, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupPath = path.join(backupDir, `cc_backup_${stamp}.db`);
-    fs.copyFileSync(dbPath, backupPath);
-    console.log(`🗃️  Backup: ${backupPath}`);
+  const dbPath = resolveDbPath();
+  if (!fs.existsSync(dbPath)) {
+    console.error(
+      `❌ No database found at ${dbPath} — refusing to purge legacy rows without a backup.`
+    );
+    process.exit(1);
+    return;
   }
+  const backupPath = backupDatabase(dbPath);
+  console.log(`🗃️  Backup: ${backupPath}`);
 
   const prisma = new PrismaClient();
   try {
@@ -57,4 +97,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { LEGACY_PROVIDERS, purgeLegacyProviders, main };
+module.exports = {
+  LEGACY_PROVIDERS,
+  purgeLegacyProviders,
+  main,
+  resolveDbPath,
+  backupDatabase,
+  runBackupCli,
+};
