@@ -395,25 +395,46 @@ invisible. It is now logged in full."
 
 Zadania 3-6 to usunięcia. **Nie dostają nowych testów jednostkowych** — nie ma czego testować, gdy kod przestaje istnieć. Ich cyklem weryfikacji jest: grep dowodzący zera referencji, `npm run type-check` i `npm run build`. To pełnoprawny cykl (uruchom → oczekiwany wynik), tylko nie unit test. Zestaw testów z Fazy 0 musi zostać zielony po każdym z nich.
 
-### Task 3: Usuń warstwę WebSocket (decyzja 1, znalezisko C)
+### Task 3: Usuń warstwę WebSocket i zwiń SSE do jedynego transportu (decyzja 1, znalezisko C — sprostowane)
 
 **Files:**
+- Delete: `pages/api/ws/[projectId].ts` (po nim katalog `pages/` jest pusty — usuń go w całości)
 - Delete: `lib/server/websocket-manager.ts`
 - Delete: `hooks/useWebSocket.ts`
 - Modify: `lib/services/stream.ts` (usuń import i `websocketManager.broadcast`)
 - Modify: `lib/config/constants.ts` (usuń `WEBSOCKET_CONFIG`)
-- Modify: `components/chat/ChatLog.tsx` (usuń `useWebSocket`, `isConnected`, `isConnecting`)
+- Modify: `components/chat/ChatLog.tsx` (usuń transport WS i zwiń SSE z fallbacku w jedyny kanał)
+- Modify: `components/modals/CreateProjectModal.tsx` (usuń użycie `NEXT_PUBLIC_WS_BASE`)
 - Modify: `package.json` (usuń `ws` i `@types/ws`)
 
 **Interfaces:**
 - Consumes: nic.
-- Produces: `streamManager.publish(projectId, event)` zachowuje sygnaturę — zmienia się tylko to, że nie rozgłasza już do nieistniejącego managera WS. `ChatLog` przestaje eksponować stan połączenia WS; Task 8 opiera się na tym, że został jeden transport.
+- Produces: `streamManager.publish(projectId, event)` zachowuje sygnaturę — przestaje tylko rozgłaszać do usuniętego managera. `ChatLog` nie eksponuje już stanu transportu ani trybu fallback; SSE jest podłączane bezwarunkowo. Task 8 opiera się na tym, że został jeden transport.
 
-- [ ] **Step 1: Usuń pliki serwera i hooka**
+**Dlaczego usuwamy, a nie naprawiamy — zmierzone, nie założone.** Warstwa WS **nie jest** martwym kodem: `pages/api/ws/[projectId].ts` tworzy `WebSocketServer({ noServer: true })`, podpina listener `upgrade` i woła `websocketManager.addConnection()`, a klient celuje w dokładnie tę trasę (`hooks/useWebSocket.ts:99`). Jest natomiast zepsuta. Pomiar na uruchomionej aplikacji, konsola przeglądarki:
+
+```
+🔌 [Transport] WebSocket connected, switching to WebSocket transport
+🔌 [Transport] WebSocket disconnected, preparing SSE fallback
+[WebSocket] Reconnecting in 1746ms (attempt 1/10)
+🔄 [Transport] SSE connection established
+🔌 [Transport] WebSocket connected …                ← i od nowa
+```
+
+Trzy pełne cykle w siedem sekund, bez końca — licznik prób resetuje się przy każdym `onopen`, więc reconnect nigdy się nie wyczerpuje. Każdy cykl woła `recoverMissingMessages()` i otwiera nowy `EventSource`: w jednym wejściu na stronę policzono **ponad 15** pełnych pobrań `messages?limit=200&offset=0`, a `/api/chat/<id>/stream` zwrócił **503 siedem razy**, zanim dał 200 — wyciekłe połączenia SSE wyczerpują limit przeglądarki na host. Trzepanie WS jest więc **drugim silnikiem flickera**, obok kaskady z Task 8, i degraduje własny fallback.
+
+Heartbeat jest 30-sekundowy (`websocket-manager.ts:139`), więc nie on zrywa połączenie po sekundzie; przyczyna siedzi w zszyciu `noServer` z serwerem deweloperskim Nexta i naprawa wymagałaby ponownej weryfikacji pod `next start` oraz w kontenerze. Do jednokierunkowego strumienia serwer→klient wystarcza SSE, które i tak obsługuje wszystkie zdarzenia — `streamManager.publish` pisze do obu kanałów tą samą treścią.
+
+To zadanie **nie dostaje testu jednostkowego** — nie ma czego testować, gdy kod przestaje istnieć. Cykl weryfikacji: grep na zero referencji, `type-check`, `build` i pomiar w przeglądarce w kroku 8.
+
+- [ ] **Step 1: Usuń trasę upgrade'u, manager i hooka**
 
 ```bash
+git rm -r pages
 git rm lib/server/websocket-manager.ts hooks/useWebSocket.ts
 ```
+
+`git rm -r pages` usuwa cały katalog Pages Routera — po tej trasie nie zostaje w nim nic, a pusty `pages/` obok `app/` tylko myli następnego czytelnika.
 
 - [ ] **Step 2: Odetnij rozgłaszanie WS w `stream.ts`**
 
@@ -431,22 +452,23 @@ oraz pierwszą linię ciała metody `publish`:
 
 Reszta `publish` (enkodowanie SSE, iteracja po kontrolerach, sprzątanie martwych) zostaje bez zmian.
 
-- [ ] **Step 3: Usuń `WEBSOCKET_CONFIG`**
+- [ ] **Step 3: Usuń `WEBSOCKET_CONFIG` i `NEXT_PUBLIC_WS_BASE`**
 
 W `lib/config/constants.ts` usuń cały blok `export const WEBSOCKET_CONFIG = { ... } as const;` razem z komentarzem `// WebSocket Configuration`.
 
-- [ ] **Step 4: Wypnij WebSocket z `ChatLog.tsx`**
+W `components/modals/CreateProjectModal.tsx:233` usuń odczyt `process.env.NEXT_PUBLIC_WS_BASE` i wyliczanie z niego adresu — modal nie potrzebuje bazy WS. Jeśli wyliczona wartość karmi jakiś fetch, zamień ją na ścieżkę relatywną (`/api/...`), jak w pozostałych wywołaniach w tym pliku.
+
+- [ ] **Step 4: Zwiń SSE z fallbacku w jedyny transport**
 
 W `components/chat/ChatLog.tsx`:
-1. Usuń import `useWebSocket`.
-2. Usuń całe wywołanie `const { isConnected, isConnecting } = useWebSocket({ ... });` (~linie 1510-1533).
-3. Wszędzie, gdzie w warunkach występuje `isConnected` lub `isConnecting`, potraktuj je jak `false` i uprość wyrażenie. Konkretnie:
-   - efekt reagujący na `isConnected`/`isConnecting` (~1535-1570) — zostaje tylko gałąź ustawiająca fallback SSE; jeśli po uproszczeniu efekt nie robi nic, usuń go razem z deps.
-   - `if (isConnected || isSseConnected)` → `if (isSseConnected)`.
-   - `const shouldPoll = !isConnected && !isSseConnected && enableSseFallback;` → `const shouldPoll = !isSseConnected && enableSseFallback;`
-   - log `Stopping polling due to active connection: WebSocket=...` → zostaw tylko część o SSE.
-4. W handlerze `handleWebSocketData` zmień nazwę na `handleRealtimeLogEntry` — jego treść zostaje.
-5. Usuń `activeTransport.current = 'websocket'` i wszystkie odwołania do wartości `'websocket'`; jeśli `activeTransport` ma po tym jedną możliwą wartość, zostaw ref, ale bez gałęzi WS.
+
+1. Usuń import `useWebSocket` i całe wywołanie `const { isConnected, isConnecting } = useWebSocket({ ... });` (~1510-1533).
+2. Usuń efekt reagujący na `isConnected`/`isConnecting` (~1535-1570) w całości.
+3. Usuń stan i refy obsługujące tryb fallback: `enableSseFallback`, `sseFallbackTimerRef`, `hasLoggedSseFallbackRef`, `activeTransport`. Prop `onSseFallbackActive` zostaje w sygnaturze (rodzic go przekazuje), ale wołaj go **raz, z `false`**, przy nawiązaniu SSE — usunięcie propa to zmiana kontraktu komponentu, a to nie jest zadanie na to.
+4. Efekt nawiązujący SSE (~1583-1670) przestaje być warunkowany `enableSseFallback` — łączy się bezwarunkowo, gdy jest `projectId`. Zostaw istniejący reconnect SSE (`setTimeout(connectSse, 2000)`).
+5. Usuń `recoverMissingMessages()` razem z jej wywołaniami. Istniała po to, żeby nadrobić zdarzenia zgubione przy przełączaniu transportów; przy jednym transporcie z własnym reconnectem i pełnym doczytaniem historii przy montowaniu nie ma czego nadrabiać, a każde jej wywołanie to było kolejne pobranie listy.
+6. `if (isConnected || isSseConnected)` → `if (isSseConnected)`; `const shouldPoll = !isConnected && !isSseConnected && enableSseFallback;` → `const shouldPoll = !isSseConnected;`. Log `Stopping polling due to active connection: WebSocket=...` zostaw tylko w części o SSE.
+7. Zmień nazwę `handleWebSocketData` na `handleRealtimeLogEntry` — treść zostaje.
 
 - [ ] **Step 5: Usuń zależności `ws`**
 
@@ -458,25 +480,47 @@ npm uninstall ws @types/ws
 
 Run:
 ```bash
-grep -rn "useWebSocket\|websocketManager\|websocket-manager\|WEBSOCKET_CONFIG\|from 'ws'\|isConnecting" --include=*.ts --include=*.tsx app components lib hooks types
+grep -rn "useWebSocket\|websocketManager\|websocket-manager\|WEBSOCKET_CONFIG\|NEXT_PUBLIC_WS_BASE\|ensureHeartbeat\|isConnecting\|enableSseFallback\|recoverMissingMessages\|from 'ws'" --include=*.ts --include=*.tsx app components lib hooks types pages 2>/dev/null
 ```
-Expected: brak wyników (exit 1). Każdy wynik to niedokończone zadanie.
+Expected: brak wyników (katalog `pages` już nie istnieje, dlatego `2>/dev/null`).
+
+**Grep MUSI obejmować `pages`** — albo potwierdzić, że katalogu nie ma. Pierwotna analiza tej warstwy uznała ją za martwą właśnie dlatego, że grepowała `app components lib hooks types` i pominęła Pages Router.
 
 - [ ] **Step 7: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
-Expected: zero błędów, testy zielone, build przechodzi
+Expected: zero błędów, testy zielone, build przechodzi. W wyjściu builda **nie może** być już sekcji `Route (pages)` z `/api/ws/[projectId]`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Dowód z uruchomienia — koniec trzepania i mniej pobrań**
+
+Run: `npm run build && npm start`, otwórz projekt, konsola i zakładka Network.
+
+Expected:
+- **Zero** linii `[Transport] WebSocket` i `[WebSocket] Reconnecting` w konsoli.
+- `🔄 [Transport] SSE connection established` **raz**, bez powtórek.
+- Zero odpowiedzi `503` na `/api/chat/<id>/stream`.
+- Liczba pobrań `messages?limit=200&offset=0` przy wejściu na stronę: **wyraźnie poniżej 15** — tyle zmierzono przed zmianą. Kaskadę do końca domyka Task 8, więc tutaj nie oczekuj jeszcze dwóch; oczekuj, że silnik transportowy przestał ją napędzać.
+
+Zapisz w raporcie zadania liczbę pobrań przed (15+) i po. To jest jedyny dowód, że usunięcie WS pomogło, a nie tylko usunęło kod.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
-git commit -m "refactor: drop the dead WebSocket transport
+git commit -m "refactor: drop the WebSocket transport, leaving SSE alone
 
-The server side never accepted a connection: addConnection was
-unreachable and no upgrade handler existed, so the client hook
-reconnected against nothing while SSE carried every event. Removing it
-leaves one transport instead of two, one of which was fictional."
+The WebSocket layer was wired - a Pages Router route installed the
+upgrade handler and registered connections - but it never held a
+connection: measured on a running instance, it connected and dropped
+three times in seven seconds, and the reconnect counter reset on every
+open so it never gave up. Each cycle refetched the message list and
+leaked an EventSource, which is why the stream endpoint answered 503
+seven times before succeeding. Its flapping was a second engine behind
+the chat flicker.
+
+SSE carries every event already, so it stops being a fallback and
+becomes the transport. The dual-transport branching, the fallback
+timers and the missing-message recovery go with it."
 ```
 
 ### Task 4: Usuń integracje Vercel i Supabase (decyzja 3)
@@ -979,7 +1023,9 @@ backs up the database first, since db push rebuilds SQLite tables."
 - Consumes: brak `isConnected` po Task 3.
 - Produces: `ChatLog` przestaje przeładowywać historię przy re-renderze rodzica. Żadnych zmian w propsach — kontrakt komponentu zostaje.
 
-Przyczyna, dla porządku: rodzic przekazuje `onSessionStatusChange` i `onAddUserMessage` jako inline arrow, więc przy każdym jego renderze `checkActiveSession` dostaje nową tożsamość, efekt montujący z deps `[projectId, checkActiveSession, loadChatHistory]` re-runuje się i woła `loadChatHistory({ showLoading: true })` — pełny refetch 200 wiadomości plus `setIsLoading(true)`.
+Flicker miał **dwie** przyczyny. Pierwszą — trzepanie transportu WS, które przy każdym cyklu wołało `recoverMissingMessages()` i otwierało nowy `EventSource` — usunął Task 3. To zadanie zamyka drugą, niezależną od transportu: rodzic przekazuje `onSessionStatusChange` i `onAddUserMessage` jako inline arrow, więc przy każdym jego renderze `checkActiveSession` dostaje nową tożsamość, efekt montujący z deps `[projectId, checkActiveSession, loadChatHistory]` re-runuje się i woła `loadChatHistory({ showLoading: true })` — pełny refetch 200 wiadomości plus `setIsLoading(true)`.
+
+Punkt odniesienia z pomiaru: **przed jakąkolwiek zmianą jedno wejście na stronę projektu dawało ponad 15 pobrań** `messages?limit=200&offset=0`. Task 3 miał to obniżyć; to zadanie ma dowieźć próg z kroku 8.
 
 - [ ] **Step 1: Ustabilizuj handlery od rodzica przez ref**
 
@@ -1102,7 +1148,7 @@ npm run build && npm start
 ```
 Następnie w przeglądarce otwórz projekt, zakładkę Network, filtr `messages`, i wyślij do agenta prompt („dodaj nagłówek na stronie głównej").
 
-Expected — progi zachowaniowe, nie równości:
+Expected — progi zachowaniowe, nie równości (punkt startowy: 15+ pobrań przed zmianami):
 - **Skeleton nie wraca ani razu** po pierwszym wczytaniu. To jest właściwy objaw: `setIsLoading(true)` nie może się już odpalić w trakcie runu.
 - **≤ 2 żądania `messages`** na wejście na stronę, plus **najwyżej jedno** po zakończeniu runu (to zamierzone — krok 5 ustawia `setNeedsHistoryRefresh(true)`, żeby dociągnąć końcówkę bez migotania).
 - **Zero żądań `messages` w trakcie** pracy agenta — wiadomości dochodzą przez SSE.
