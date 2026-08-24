@@ -3,7 +3,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { getDefaultModelForCli } from '@/lib/constants/cliModels';
 
 export type GlobalAISettings = {
-  default_cli: string;
   cli_settings: {
     [key: string]: {
       model?: string;
@@ -20,7 +19,6 @@ type GlobalSettingsCtx = {
 };
 
 const defaultSettings: GlobalAISettings = {
-  default_cli: 'claude',
   cli_settings: {
     claude: { model: getDefaultModelForCli(null) },
   },

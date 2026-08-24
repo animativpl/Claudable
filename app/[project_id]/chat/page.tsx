@@ -430,17 +430,6 @@ const persistProjectPreferences = useCallback(
     [projectId, selectedModel, conversationId, persistProjectPreferences, updateSelectedModel]
   );
 
-  useEffect(() => {
-    if (!modelOptions.length) return;
-    const hasSelected = modelOptions.some(option => option.id === selectedModel);
-    if (!hasSelected) {
-      const fallbackOption = modelOptions.find(option => option.available) || modelOptions[0];
-      if (fallbackOption) {
-        void handleModelChange(fallbackOption);
-      }
-    }
-  }, [modelOptions, selectedModel, handleModelChange]);
-
   const start = useCallback(async () => {
     try {
       setIsStartingPreview(true);

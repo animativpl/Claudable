@@ -8,7 +8,6 @@ import {
 function serialize(settings: Awaited<ReturnType<typeof loadGlobalSettings>>) {
   return {
     ...settings,
-    defaultCli: settings.default_cli,
     cliSettings: settings.cli_settings,
   };
 }
@@ -24,11 +23,6 @@ export async function PUT(request: NextRequest) {
     const candidate = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
 
     const update: Record<string, unknown> = {};
-
-    const defaultCli = candidate.default_cli ?? candidate.defaultCli;
-    if (typeof defaultCli === 'string') {
-      update.default_cli = defaultCli;
-    }
 
     const cliSettingsRaw = candidate.cli_settings ?? candidate.cliSettings;
     const cliSettings = normalizeCliSettings(cliSettingsRaw as Record<string, unknown> | undefined);

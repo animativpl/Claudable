@@ -8,12 +8,10 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'global-settings.json');
 export type CLISettings = Record<string, Record<string, unknown>>;
 
 export interface GlobalSettings {
-  default_cli: string;
   cli_settings: CLISettings;
 }
 
 const DEFAULT_SETTINGS: GlobalSettings = {
-  default_cli: 'claude',
   cli_settings: {
     claude: {
       model: getDefaultModelForCli('claude'),
@@ -28,22 +26,18 @@ async function ensureDataDir(): Promise<void> {
 async function readSettingsFile(): Promise<GlobalSettings | null> {
   try {
     const raw = await fs.readFile(SETTINGS_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as GlobalSettings;
+    const parsed = JSON.parse(raw) as Partial<GlobalSettings>;
     if (!parsed || typeof parsed !== 'object') {
       return null;
     }
 
-    const defaultCli = typeof parsed.default_cli === 'string'
-      ? parsed.default_cli
-      : DEFAULT_SETTINGS.default_cli;
-
+    // Legacy files may still carry a `default_cli` key; it is ignored on read.
     const cliSettings =
       typeof parsed.cli_settings === 'object' && parsed.cli_settings !== null
         ? parsed.cli_settings
         : {};
 
     return {
-      default_cli: typeof parsed.default_cli === 'string' ? parsed.default_cli : DEFAULT_SETTINGS.default_cli,
       cli_settings: {
         ...DEFAULT_SETTINGS.cli_settings,
         ...cliSettings,
@@ -63,7 +57,6 @@ export async function loadGlobalSettings(): Promise<GlobalSettings> {
   const existing = await readSettingsFile();
   if (existing) {
     const merged: GlobalSettings = {
-      default_cli: existing.default_cli ?? DEFAULT_SETTINGS.default_cli,
       cli_settings: {
         ...DEFAULT_SETTINGS.cli_settings,
         ...(existing.cli_settings ?? {}),
@@ -102,7 +95,6 @@ export async function updateGlobalSettings(partial: Partial<GlobalSettings>): Pr
   const cliSettings = normalizeCliSettings(partial.cli_settings);
 
   const next: GlobalSettings = {
-    default_cli: partial.default_cli ?? current.default_cli,
     cli_settings: { ...current.cli_settings },
   };
 
