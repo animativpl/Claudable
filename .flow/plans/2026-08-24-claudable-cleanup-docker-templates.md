@@ -517,7 +517,11 @@ Expected:
 
 **Nie mierz odpowiedzi `503` w logu sieciowym przeglądarki.** Zbadane: serwer odpowiada `200` na **każde** żądanie strumienia (log dev-servera: `GET /api/chat/<id>/stream 200` plus `[SSE] Stream cancelled`), a `curl` — 10 równoległych i 30 szybkich otwórz-porzuć — nigdy nie dostaje 503. W kodzie aplikacji nie ma źródła 503: brak `middleware.ts`, trasa nie ma ścieżki błędu, `StreamManager.addStream` nie ma limitu. `503` jest **artefaktem instrumentacji** — tak czytnik sieci raportuje żądanie strumieniowe przerwane przez klienta przed zakończeniem odpowiedzi. Kryterium „zero 503" mierzyłoby narzędzie, nie kod.
 
-**Miarą zastępczą jest liczba linii `[SSE] Stream cancelled` w logu serwera** na jedno wejście na stronę — jednoznaczna, bo pochodzi z naszego kodu (`app/api/chat/[project_id]/stream/route.ts`). Zmierzone po usunięciu WS: **13**. Zapisz swoją liczbę w raporcie; Task 8 ma ją zbić do zera lub jedynki.
+**Miarą zastępczą jest liczba linii `[SSE] Client connected to project` w logu serwera** (`app/api/chat/[project_id]/stream/route.ts:26`) na jedno wejście na stronę — jedna linia na każdy przyjęty strumień, czyli dokładnie jedna na każde utworzone `EventSource`.
+
+Nie licz linii teardownu. Ten plik ma **dwie** ścieżki rozpadu — `[SSE] Client disconnected` (`:65`, abort żądania) i `[SSE] Stream cancelled` (`:72`, cancel strumienia) — a od sposobu zamknięcia zależy, która się odpali. Task 8 zmienia moment i sposób zamykania `EventSource`, więc mógłby przesunąć teardowny z jednej linii na drugą i **zbić licznik do zera bez zmniejszenia churnu ani o jedno połączenie**. Liczby połączeń nie da się przenieść do innej linii; liczby rozłączeń da się.
+
+Zmierzone po usunięciu WS na **dev-serverze**: 13 przyjętych strumieni na jedno wejście. Zapisz swoją liczbę w raporcie.
 
 - [ ] **Step 9: Commit**
 
@@ -1176,7 +1180,11 @@ Następnie w przeglądarce otwórz projekt, zakładkę Network, filtr `messages`
 
 Expected — progi zachowaniowe, nie równości (punkt startowy: 15+ pobrań przed zmianami):
 - **Skeleton nie wraca ani razu** po pierwszym wczytaniu. To jest właściwy objaw: `setIsLoading(true)` nie może się już odpalić w trakcie runu.
-- **Liczba linii `[SSE] Stream cancelled` w logu serwera na jedno wejście: 0 albo 1.** Po Task 3 było ich 13 — każda to remount efektu SSE zrywający strumień. To najostrzejsza miara tej naprawy, bo pochodzi z naszego kodu, a nie z instrumentacji przeglądarki. Nie mierz odpowiedzi `503` w logu sieciowym: serwer zawsze odpowiada 200, a 503 jest artefaktem raportowania przerwanego strumienia (zbadane przy Task 3).
+- **Liczba linii `[SSE] Client connected to project` w logu serwera na jedno wejście: 0 albo 1.**
+
+  **Zmierz własny baseline, nie porównuj z liczbą z Task 3.** Tam wyszło 13, ale na dev-serverze, gdzie `reactStrictMode: true` (`next.config.js:3`) dubluje efekty montujące — a Ty mierzysz na buildzie produkcyjnym. Porównywanie tych dwóch liczb to porównywanie dwóch instrumentów. Zrób tak: **przed** swoimi zmianami w kodzie odpal `npm run build && npm start`, wejdź na stronę projektu, policz linie `Client connected`, zapisz jako „przed". Potem wprowadź zmiany, powtórz, zapisz jako „po". Oba pomiary na tym samym instrumencie, wykonane przez tę samą osobę.
+
+  Licz **połączenia**, nie rozłączenia: trasa ma dwie ścieżki teardownu (`:65` i `:72`) i zmiana sposobu zamykania `EventSource` — czyli dokładnie to, co robisz — może przesunąć zdarzenia między nimi, dając spadek licznika bez spadku churnu. Nie mierz też odpowiedzi `503` w logu sieciowym: serwer zawsze odpowiada 200, a 503 jest artefaktem raportowania przerwanego strumienia (zbadane przy Task 3).
 - **≤ 2 żądania `messages`** na wejście na stronę, plus **najwyżej jedno** po zakończeniu runu (to zamierzone — krok 5 ustawia `setNeedsHistoryRefresh(true)`, żeby dociągnąć końcówkę bez migotania).
 - **Zero żądań `messages` w trakcie** pracy agenta — wiadomości dochodzą przez SSE.
 
