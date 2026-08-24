@@ -1,5 +1,3 @@
-import type { CLIType } from './cli';
-
 export type ProjectStatus =
   | 'idle'
   | 'preview_running'
@@ -33,13 +31,9 @@ export interface Project {
   services?: {
     github?: ServiceConnection;
   };
-  preferredCli?: CLIType | null;
   selectedModel?: string | null;
-  fallbackEnabled?: boolean;
 }
 
 export interface ProjectSettings {
-  preferredCli: CLIType;
-  fallbackEnabled: boolean;
   selectedModel?: string | null;
 }

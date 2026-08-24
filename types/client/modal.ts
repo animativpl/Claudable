@@ -38,5 +38,4 @@ export interface GlobalSettings {
     [cliId: string]: CLIConfig;
   };
   default_cli?: string;
-  fallback_enabled?: boolean;
 }

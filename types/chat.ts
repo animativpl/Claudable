@@ -25,8 +25,6 @@ export interface ActRequest {
   instruction: string;
   allowGlobs?: string[];
   conversationId?: string;
-  cliPreference?: string;
-  fallbackEnabled?: boolean;
   selectedModel?: string;
   images?: ImageAttachment[];
   requestId?: string;

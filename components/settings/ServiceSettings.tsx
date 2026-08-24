@@ -122,8 +122,6 @@ export function ServiceSettings({ projectId, onOpenGlobalSettings }: ServiceSett
 
   const handleGitHubModalSuccess = () => {
     loadServiceConnections(); // Reload connections after GitHub connection
-    // Notify other components that services have been updated
-    window.dispatchEvent(new CustomEvent('services-updated'));
   };
 
   const handleDisconnect = async (serviceId: string) => {

@@ -44,26 +44,6 @@ export async function GET() {
         installed: false,
         checking: false,
       },
-      cursor: {
-        installed: false,
-        checking: false,
-      },
-      codex: {
-        installed: false,
-        checking: false,
-      },
-      gemini: {
-        installed: false,
-        checking: false,
-      },
-      qwen: {
-        installed: false,
-        checking: false,
-      },
-      glm: {
-        installed: false,
-        checking: false,
-      },
     };
 
     // Check Claude Code CLI installation

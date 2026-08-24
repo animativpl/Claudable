@@ -13,9 +13,7 @@ export function serializeProject(project: ProjectEntity): Project {
     updatedAt: project.updatedAt.toISOString(),
     lastActiveAt: project.lastActiveAt ? project.lastActiveAt.toISOString() : null,
     initialPrompt: project.initialPrompt ?? null,
-    preferredCli: (project.preferredCli ?? null) as Project['preferredCli'],
     selectedModel: project.selectedModel ?? null,
-    fallbackEnabled: project.fallbackEnabled,
   };
 }
 

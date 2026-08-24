@@ -2,7 +2,7 @@
  * AI CLI-related types
  */
 
-export type CLIType = 'claude' | 'cursor' | 'codex' | 'gemini' | 'qwen' | 'glm';
+export type CLIType = 'claude';
 
 export type SessionType = 'chat' | 'code_gen' | 'error_fix';
 
@@ -38,15 +38,16 @@ export interface CLIOption {
   version?: string;
 }
 
-export interface CLIStatus {
-  [key: string]: {
-    installed: boolean;
-    version?: string;
-    checking: boolean;
-    error?: string;
-    models?: string[];
-  };
+export interface CLIStatusEntry {
+  installed: boolean;
+  available?: boolean;
+  configured?: boolean;
+  checking?: boolean;
+  version?: string;
+  error?: string;
+  models?: string[];
 }
+export type CLIStatus = { claude: CLIStatusEntry };
 
 export interface GlobalSettings {
   defaultCli?: CLIType;

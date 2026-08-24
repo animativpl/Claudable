@@ -3,8 +3,6 @@
  * Used by both client and server
  */
 
-import type { CLIType } from './cli';
-
 /**
  * Unified Project Status
  * Consolidates frontend and backend status types
@@ -44,17 +42,13 @@ export interface BaseProject {
   previewUrl?: string | null;
   previewPort?: number | null;
   initialPrompt?: string | null;
-  preferredCli?: CLIType | null;
   selectedModel?: string | null;
-  fallbackEnabled: boolean;
 }
 
 /**
  * Project Settings
  */
 export interface ProjectSettings {
-  preferredCli: CLIType;
-  fallbackEnabled: boolean;
   selectedModel?: string | null;
   theme?: 'light' | 'dark' | 'system';
   autoSave?: boolean;

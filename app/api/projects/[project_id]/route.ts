@@ -69,7 +69,6 @@ export async function PUT(
       status: body.status,
       previewUrl: body.previewUrl,
       previewPort: body.previewPort,
-      preferredCli: body.preferredCli,
       selectedModel: body.selectedModel,
       settings: body.settings,
     };

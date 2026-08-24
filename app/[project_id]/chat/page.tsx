@@ -13,33 +13,14 @@ import ChatInput from '@/components/chat/ChatInput';
 import { ChatErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
-import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/cliModels';
-import {
-  ACTIVE_CLI_BRAND_COLORS,
-  ACTIVE_CLI_IDS,
-  ACTIVE_CLI_MODEL_OPTIONS,
-  ACTIVE_CLI_NAME_MAP,
-  DEFAULT_ACTIVE_CLI,
-  buildActiveModelOptions,
-  normalizeModelForCli,
-  sanitizeActiveCli,
-  type ActiveCliId,
-  type ActiveModelOption,
-} from '@/lib/utils/cliOptions';
+import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
-const assistantBrandColors = ACTIVE_CLI_BRAND_COLORS;
-
-const CLI_LABELS = ACTIVE_CLI_NAME_MAP;
-
-const CLI_ORDER = ACTIVE_CLI_IDS;
-
-const sanitizeCli = (cli?: string | null) => sanitizeActiveCli(cli, DEFAULT_ACTIVE_CLI);
-
-const sanitizeModel = (cli: string, model?: string | null) => normalizeModelForCli(cli, model, DEFAULT_ACTIVE_CLI);
+// Claude is the only agent, so its brand color is used unconditionally.
+const CLAUDE_BRAND_COLOR = '#DE7356';
 
 // Function to convert hex to CSS filter for tinting white images
 // Since the original image is white (#FFFFFF), we can apply filters more accurately
@@ -57,19 +38,13 @@ const hexToFilter = (hex: string): string => {
 type Entry = { path: string; type: 'file'|'dir'; size?: number };
 type ProjectStatus = 'initializing' | 'active' | 'failed';
 
-type CliStatusSnapshot = {
-  available?: boolean;
-  configured?: boolean;
-  models?: string[];
-};
+type ModelOption = { id: string; name: string; available: boolean };
 
-type ModelOption = Omit<ActiveModelOption, 'cli'> & { cli: string };
-
-const buildModelOptions = (statuses: Record<string, CliStatusSnapshot>): ModelOption[] =>
-  buildActiveModelOptions(statuses).map(option => ({
-    ...option,
-    cli: option.cli,
-  }));
+const CLAUDE_MODEL_OPTIONS: ModelOption[] = getModelDefinitionsForCli(null).map(({ id, name }) => ({
+  id,
+  name,
+  available: true,
+}));
 
 // TreeView component for VSCode-style file explorer
 interface TreeViewProps {
@@ -253,15 +228,13 @@ export default function ChatPage() {
   const initialPromptSentRef = useRef(false);
   const [isStartingPreview, setIsStartingPreview] = useState(false);
   const [previewInitializationMessage, setPreviewInitializationMessage] = useState('Starting development server...');
-  const [cliStatuses, setCliStatuses] = useState<Record<string, CliStatusSnapshot>>({});
   const [conversationId, setConversationId] = useState<string>(() => {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
       return window.crypto.randomUUID();
     }
     return '';
   });
-  const [preferredCli, setPreferredCli] = useState<ActiveCliId>(DEFAULT_ACTIVE_CLI);
-  const [selectedModel, setSelectedModel] = useState<string>(getDefaultModelForCli(DEFAULT_ACTIVE_CLI));
+  const [selectedModel, setSelectedModel] = useState<string>(getDefaultModelForCli(null));
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState<boolean>(true);
   const [thinkingMode, setThinkingMode] = useState<boolean>(false);
   const [isUpdatingModel, setIsUpdatingModel] = useState<boolean>(false);
@@ -272,34 +245,16 @@ export default function ChatPage() {
   const lineNumberRef = useRef<HTMLDivElement>(null);
   const editedContentRef = useRef<string>('');
   const [isFileUpdating, setIsFileUpdating] = useState(false);
-  const activeBrandColor =
-    assistantBrandColors[preferredCli] || assistantBrandColors[DEFAULT_ACTIVE_CLI];
-  const modelOptions = useMemo(() => buildModelOptions(cliStatuses), [cliStatuses]);
-  const cliOptions = useMemo(
-    () => CLI_ORDER.map(cli => ({
-      id: cli,
-      name: CLI_LABELS[cli] || cli,
-      available: Boolean(cliStatuses[cli]?.available && cliStatuses[cli]?.configured)
-    })),
-    [cliStatuses]
-  );
+  const activeBrandColor = CLAUDE_BRAND_COLOR;
+  const modelOptions = CLAUDE_MODEL_OPTIONS;
 
-  const updatePreferredCli = useCallback((cli: string) => {
-    const sanitized = sanitizeCli(cli);
-    setPreferredCli(sanitized);
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('selectedAssistant', sanitized);
-    }
-  }, []);
-
-  const updateSelectedModel = useCallback((model: string, cliOverride?: string) => {
-    const effectiveCli = cliOverride ? sanitizeCli(cliOverride) : preferredCli;
-    const sanitized = sanitizeModel(effectiveCli, model);
+  const updateSelectedModel = useCallback((model: string) => {
+    const sanitized = normalizeModelId(null, model);
     setSelectedModel(sanitized);
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('selectedModel', sanitized);
     }
-  }, [preferredCli]);
+  }, []);
 
   useEffect(() => {
     previewUrlRef.current = previewUrl;
@@ -323,7 +278,6 @@ export default function ChatPage() {
         instruction: initialPrompt,
         images: [],
         isInitialPrompt: true,
-        cliPreference: preferredCli,
         conversationId: conversationId || undefined,
         requestId,
         selectedModel,
@@ -378,7 +332,7 @@ export default function ChatPage() {
     } finally {
       setIsRunning(false);
     }
-  }, [initialPromptSent, preferredCli, conversationId, projectId, selectedModel, createRequest]);
+  }, [initialPromptSent, conversationId, projectId, selectedModel, createRequest]);
 
   // Guarded trigger that can be called from multiple places safely
   const triggerInitialPromptIfNeeded = useCallback(() => {
@@ -389,51 +343,25 @@ export default function ChatPage() {
     initialPromptSentRef.current = true;
     setInitialPromptSent(true);
     
-    // Store the selected model and assistant in sessionStorage when returning
-    const cliFromUrl = searchParams?.get('cli');
+    // Store the selected model in sessionStorage when returning
     const modelFromUrl = searchParams?.get('model');
-    if (cliFromUrl) {
-      const sanitizedCli = sanitizeCli(cliFromUrl);
-      sessionStorage.setItem('selectedAssistant', sanitizedCli);
-      if (modelFromUrl) {
-        sessionStorage.setItem('selectedModel', sanitizeModel(sanitizedCli, modelFromUrl));
-      }
-    } else if (modelFromUrl) {
-      sessionStorage.setItem('selectedModel', sanitizeModel(preferredCli, modelFromUrl));
+    if (modelFromUrl) {
+      sessionStorage.setItem('selectedModel', normalizeModelId(null, modelFromUrl));
     }
-    
+
     // Don't show the initial prompt in the input field
     // setPrompt(initialPromptFromUrl);
     setTimeout(() => {
       sendInitialPrompt(initialPromptFromUrl);
     }, 300);
-  }, [searchParams, sendInitialPrompt, preferredCli]);
-
-const loadCliStatuses = useCallback(() => {
-  const snapshot: Record<string, CliStatusSnapshot> = {};
-  ACTIVE_CLI_IDS.forEach(id => {
-    const models = ACTIVE_CLI_MODEL_OPTIONS[id]?.map(model => model.id) ?? [];
-    snapshot[id] = {
-      available: true,
-      configured: true,
-      models,
-    };
-  });
-  setCliStatuses(snapshot);
-}, []);
+  }, [searchParams, sendInitialPrompt]);
 
 const persistProjectPreferences = useCallback(
-  async (changes: { preferredCli?: string; selectedModel?: string }) => {
+  async (changes: { selectedModel?: string }) => {
     if (!projectId) return;
     const payload: Record<string, unknown> = {};
-    if (changes.preferredCli) {
-      const sanitizedPreferredCli = sanitizeCli(changes.preferredCli);
-      payload.preferredCli = sanitizedPreferredCli;
-      payload.preferred_cli = sanitizedPreferredCli;
-    }
     if (changes.selectedModel) {
-      const targetCli = sanitizeCli(changes.preferredCli ?? preferredCli);
-      const normalized = sanitizeModel(targetCli, changes.selectedModel);
+      const normalized = normalizeModelId(null, changes.selectedModel);
       payload.selectedModel = normalized;
       payload.selected_model = normalized;
     }
@@ -453,128 +381,65 @@ const persistProjectPreferences = useCallback(
     const result = await response.json().catch(() => null);
     return result?.data ?? result;
   },
-  [projectId, preferredCli]
+  [projectId]
 );
 
   const handleModelChange = useCallback(
-    async (option: ModelOption, opts?: { skipCliUpdate?: boolean; overrideCli?: string }) => {
+    async (option: ModelOption) => {
       if (!projectId || !option) return;
 
-      const { skipCliUpdate = false, overrideCli } = opts || {};
-      const targetCli = sanitizeCli(overrideCli ?? option.cli);
-      const sanitizedModelId = sanitizeModel(targetCli, option.id);
-
-      const previousCli = preferredCli;
+      const sanitizedModelId = normalizeModelId(null, option.id);
       const previousModel = selectedModel;
 
-      if (targetCli === previousCli && sanitizedModelId === previousModel) {
+      if (sanitizedModelId === previousModel) {
         return;
       }
 
       setUsingGlobalDefaults(false);
-      updatePreferredCli(targetCli);
-      updateSelectedModel(option.id, targetCli);
+      updateSelectedModel(sanitizedModelId);
 
       setIsUpdatingModel(true);
 
       try {
-        const preferenceChanges: { preferredCli?: string; selectedModel?: string } = {
-          selectedModel: sanitizedModelId,
-        };
-        if (!skipCliUpdate && targetCli !== previousCli) {
-          preferenceChanges.preferredCli = targetCli;
-        }
+        await persistProjectPreferences({ selectedModel: sanitizedModelId });
 
-        await persistProjectPreferences(preferenceChanges);
-
-        const cliLabel = CLI_LABELS[targetCli] || targetCli;
-        const modelLabel = getModelDisplayName(targetCli, sanitizedModelId);
+        const modelLabel = getModelDisplayName(null, sanitizedModelId);
         try {
           await fetch(`${API_BASE}/api/chat/${projectId}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              content: `Switched to ${cliLabel} (${modelLabel})`,
+              content: `Switched to ${modelLabel}`,
               role: 'system',
               message_type: 'info',
-              cli_source: targetCli,
+              cli_source: 'claude',
               conversation_id: conversationId || undefined,
             }),
           });
         } catch (messageError) {
           console.warn('Failed to record model switch message:', messageError);
         }
-
-        loadCliStatuses();
       } catch (error) {
         console.error('Failed to update model preference:', error);
-        updatePreferredCli(previousCli);
-        updateSelectedModel(previousModel, previousCli);
+        updateSelectedModel(previousModel);
         alert('Failed to update model. Please try again.');
       } finally {
         setIsUpdatingModel(false);
       }
     },
-    [projectId, preferredCli, selectedModel, conversationId, loadCliStatuses, persistProjectPreferences, updatePreferredCli, updateSelectedModel]
-  );
-
-  useEffect(() => {
-    loadCliStatuses();
-  }, [loadCliStatuses]);
-
-  const handleCliChange = useCallback(
-    async (cliId: string) => {
-      if (!projectId) return;
-      if (cliId === preferredCli) return;
-
-      setUsingGlobalDefaults(false);
-
-      const candidateModels = modelOptions.filter(option => option.cli === cliId);
-      const fallbackOption =
-        candidateModels.find(option => option.id === selectedModel && option.available) ||
-        candidateModels.find(option => option.available) ||
-        candidateModels[0];
-
-      if (fallbackOption) {
-        await handleModelChange(fallbackOption, { overrideCli: cliId });
-        return;
-      }
-
-      const previousCli = preferredCli;
-      const previousModel = selectedModel;
-      setIsUpdatingModel(true);
-
-      try {
-        updatePreferredCli(cliId);
-        const defaultModel = getDefaultModelForCli(cliId);
-        updateSelectedModel(defaultModel, cliId);
-        await persistProjectPreferences({ preferredCli: cliId, selectedModel: defaultModel });
-        loadCliStatuses();
-      } catch (error) {
-        console.error('Failed to update CLI preference:', error);
-        updatePreferredCli(previousCli);
-        updateSelectedModel(previousModel, previousCli);
-        alert('Failed to update CLI. Please try again.');
-      } finally {
-        setIsUpdatingModel(false);
-      }
-    },
-    [projectId, preferredCli, selectedModel, modelOptions, handleModelChange, loadCliStatuses, persistProjectPreferences, updatePreferredCli, updateSelectedModel]
+    [projectId, selectedModel, conversationId, persistProjectPreferences, updateSelectedModel]
   );
 
   useEffect(() => {
     if (!modelOptions.length) return;
-    const hasSelected = modelOptions.some(option => option.cli === preferredCli && option.id === selectedModel);
+    const hasSelected = modelOptions.some(option => option.id === selectedModel);
     if (!hasSelected) {
-      const fallbackOption = modelOptions.find(option => option.cli === preferredCli && option.available)
-        || modelOptions.find(option => option.cli === preferredCli)
-        || modelOptions.find(option => option.available)
-        || modelOptions[0];
+      const fallbackOption = modelOptions.find(option => option.available) || modelOptions[0];
       if (fallbackOption) {
         void handleModelChange(fallbackOption);
       }
     }
-  }, [modelOptions, preferredCli, selectedModel, handleModelChange]);
+  }, [modelOptions, selectedModel, handleModelChange]);
 
   const start = useCallback(async () => {
     try {
@@ -1209,56 +1074,35 @@ const persistProjectPreferences = useCallback(
     }
   }, [projectId]);
 
-  const loadSettings = useCallback(async (projectSettings?: { cli?: string; model?: string }) => {
+  const loadSettings = useCallback(async (projectSettings?: { model?: string }) => {
     try {
-      console.log('🔧 loadSettings called with project settings:', projectSettings);
-
-      const hasCliSet = projectSettings?.cli || preferredCli;
       const hasModelSet = projectSettings?.model || selectedModel;
 
-      if (!hasCliSet || !hasModelSet) {
-        console.log('⚠️ Missing CLI or model, loading global settings');
+      if (!hasModelSet) {
         const globalResponse = await fetch(`${API_BASE}/api/settings/global`);
         if (globalResponse.ok) {
           const globalSettings = await globalResponse.json();
-          const defaultCli = sanitizeCli(globalSettings.default_cli || globalSettings.defaultCli);
-          const cliToUse = sanitizeCli(hasCliSet || defaultCli);
-
-          if (!hasCliSet) {
-            console.log('🔄 Setting CLI from global:', cliToUse);
-            updatePreferredCli(cliToUse);
-          }
-
-          if (!hasModelSet) {
-            const cliSettings = globalSettings.cli_settings?.[cliToUse] || globalSettings.cliSettings?.[cliToUse];
-            if (cliSettings?.model) {
-              updateSelectedModel(cliSettings.model, cliToUse);
-            } else {
-              updateSelectedModel(getDefaultModelForCli(cliToUse), cliToUse);
-            }
+          const cliSettings = globalSettings.cli_settings?.claude || globalSettings.cliSettings?.claude;
+          if (cliSettings?.model) {
+            updateSelectedModel(cliSettings.model);
+          } else {
+            updateSelectedModel(getDefaultModelForCli(null));
           }
         } else {
           const response = await fetch(`${API_BASE}/api/settings`);
           if (response.ok) {
-            const settings = await response.json();
-            if (!hasCliSet) updatePreferredCli(settings.preferred_cli || settings.default_cli || DEFAULT_ACTIVE_CLI);
-            if (!hasModelSet) {
-              const cli = sanitizeCli(settings.preferred_cli || settings.default_cli || preferredCli || DEFAULT_ACTIVE_CLI);
-              updateSelectedModel(getDefaultModelForCli(cli), cli);
-            }
+            updateSelectedModel(getDefaultModelForCli(null));
           }
         }
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
-      const hasCliSet = projectSettings?.cli || preferredCli;
       const hasModelSet = projectSettings?.model || selectedModel;
-      if (!hasCliSet) updatePreferredCli(DEFAULT_ACTIVE_CLI);
-      if (!hasModelSet) updateSelectedModel(getDefaultModelForCli(DEFAULT_ACTIVE_CLI), DEFAULT_ACTIVE_CLI);
+      if (!hasModelSet) updateSelectedModel(getDefaultModelForCli(null));
     }
-  }, [preferredCli, selectedModel, updatePreferredCli, updateSelectedModel]);
+  }, [selectedModel, updateSelectedModel]);
 
-  const loadProjectInfo = useCallback(async (): Promise<{ cli?: string; model?: string; status?: ProjectStatus }> => {
+  const loadProjectInfo = useCallback(async (): Promise<{ model?: string; status?: ProjectStatus }> => {
     try {
       const r = await fetch(`${API_BASE}/api/projects/${projectId}`);
       if (!r.ok) {
@@ -1274,12 +1118,6 @@ const persistProjectPreferences = useCallback(
 
       const payload = await r.json();
       const project = payload?.data ?? payload;
-      const rawPreferredCli =
-        typeof project?.preferredCli === 'string'
-          ? project.preferredCli
-          : typeof project?.preferred_cli === 'string'
-          ? project.preferred_cli
-          : undefined;
       const rawSelectedModel =
         typeof project?.selectedModel === 'string'
           ? project.selectedModel
@@ -1287,25 +1125,15 @@ const persistProjectPreferences = useCallback(
           ? project.selected_model
           : undefined;
 
-      console.log('📋 Loading project info:', {
-        preferredCli: rawPreferredCli,
-        selectedModel: rawSelectedModel,
-      });
-
       setProjectName(project.name || `Project ${projectId.slice(0, 8)}`);
 
-      const projectCli = sanitizeCli(rawPreferredCli || preferredCli);
-      if (rawPreferredCli) {
-        updatePreferredCli(projectCli);
-      }
       if (rawSelectedModel) {
-        updateSelectedModel(rawSelectedModel, projectCli);
+        updateSelectedModel(rawSelectedModel);
       } else {
-        updateSelectedModel(getDefaultModelForCli(projectCli), projectCli);
+        updateSelectedModel(getDefaultModelForCli(null));
       }
 
-      const followGlobal = !rawPreferredCli && !rawSelectedModel;
-      setUsingGlobalDefaults(followGlobal);
+      setUsingGlobalDefaults(!rawSelectedModel);
       setProjectDescription(project.description || '');
 
       if (project.initial_prompt) {
@@ -1327,11 +1155,10 @@ const persistProjectPreferences = useCallback(
       }
 
       const normalizedModel = rawSelectedModel
-        ? sanitizeModel(projectCli, rawSelectedModel)
-        : getDefaultModelForCli(projectCli);
+        ? normalizeModelId(null, rawSelectedModel)
+        : getDefaultModelForCli(null);
 
       return {
-        cli: rawPreferredCli ? projectCli : undefined,
         model: normalizedModel,
         status: project.status as ProjectStatus | undefined,
       };
@@ -1350,9 +1177,7 @@ const persistProjectPreferences = useCallback(
     projectId,
     startDependencyInstallation,
     triggerInitialPromptIfNeeded,
-    updatePreferredCli,
     updateSelectedModel,
-    preferredCli,
   ]);
 
   const loadProjectInfoRef = useRef(loadProjectInfo);
@@ -1362,21 +1187,13 @@ const persistProjectPreferences = useCallback(
 
   useEffect(() => {
     if (!searchParams) return;
-    const cliParam = searchParams.get('cli');
     const modelParam = searchParams.get('model');
-    if (!cliParam && !modelParam) {
+    if (!modelParam) {
       return;
     }
-    const sanitizedCli = cliParam ? sanitizeCli(cliParam) : preferredCli;
-    if (cliParam) {
-      setUsingGlobalDefaults(false);
-      updatePreferredCli(sanitizedCli);
-    }
-    if (modelParam) {
-      setUsingGlobalDefaults(false);
-      updateSelectedModel(modelParam, sanitizedCli);
-    }
-  }, [searchParams, preferredCli, updatePreferredCli, updateSelectedModel, setUsingGlobalDefaults]);
+    setUsingGlobalDefaults(false);
+    updateSelectedModel(modelParam);
+  }, [searchParams, updateSelectedModel, setUsingGlobalDefaults]);
 
   const loadSettingsRef = useRef(loadSettings);
   useEffect(() => {
@@ -1499,7 +1316,6 @@ const persistProjectPreferences = useCallback(
     const requestFingerprint = JSON.stringify({
       message: finalMessage.trim(),
       imageCount: imagesToUse.length,
-      cliPreference: preferredCli,
       model: selectedModel,
       mode
     });
@@ -1569,7 +1385,6 @@ const persistProjectPreferences = useCallback(
 
       console.log('🖼️ Processing images in runAct:', {
           imageCount: imagesToUse.length,
-          cli: preferredCli,
           requestId
         });
       const processedImages: { name: string; path: string; url?: string; public_url?: string; publicUrl?: string }[] = [];
@@ -1618,7 +1433,6 @@ const persistProjectPreferences = useCallback(
         instruction: finalMessage,
         images: processedImages,
         isInitialPrompt: false,
-        cliPreference: preferredCli,
         conversationId: conversationId || undefined,
         requestId,
         selectedModel,
@@ -1627,7 +1441,6 @@ const persistProjectPreferences = useCallback(
       console.log('📸 Sending request to act API:', {
         messageLength: finalMessage.length,
         imageCount: processedImages.length,
-        cli: preferredCli,
         requestId,
         images: processedImages.map(img => ({
           name: img.name,
@@ -1950,16 +1763,13 @@ const persistProjectPreferences = useCallback(
     if (!usingGlobalDefaults) return;
     if (!globalSettings) return;
 
-    const cli = sanitizeCli(globalSettings.default_cli);
-    updatePreferredCli(cli);
-
-    const modelFromGlobal = globalSettings.cli_settings?.[cli]?.model;
+    const modelFromGlobal = globalSettings.cli_settings?.claude?.model;
     if (modelFromGlobal) {
-      updateSelectedModel(modelFromGlobal, cli);
+      updateSelectedModel(modelFromGlobal);
     } else {
-      updateSelectedModel(getDefaultModelForCli(cli), cli);
+      updateSelectedModel(getDefaultModelForCli(null));
     }
-  }, [globalSettings, usingGlobalDefaults, updatePreferredCli, updateSelectedModel]);
+  }, [globalSettings, usingGlobalDefaults, updateSelectedModel]);
 
 
   // Show loading UI if project is initializing
@@ -2107,16 +1917,12 @@ const persistProjectPreferences = useCallback(
                 mode={mode}
                 onModeChange={setMode}
                 projectId={projectId}
-                preferredCli={preferredCli}
                 selectedModel={selectedModel}
                 thinkingMode={thinkingMode}
                 onThinkingModeChange={setThinkingMode}
                 modelOptions={modelOptions}
                 onModelChange={handleModelChange}
                 modelChangeDisabled={isUpdatingModel}
-                cliOptions={cliOptions}
-                onCliChange={handleCliChange}
-                cliChangeDisabled={isUpdatingModel}
               />
             </div>
           </div>

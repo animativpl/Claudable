@@ -25,7 +25,6 @@ export interface CreateProjectInput {
   project_id: string;
   name: string;
   initialPrompt: string;
-  preferredCli?: string;
   selectedModel?: string;
   description?: string;
 }
@@ -39,7 +38,6 @@ export interface UpdateProjectInput {
   status?: string;
   previewUrl?: string | null;
   previewPort?: number | null;
-  preferredCli?: string;
   selectedModel?: string;
   settings?: string;
   activeClaudeSessionId?: string;

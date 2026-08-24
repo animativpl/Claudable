@@ -2,46 +2,25 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import CreateProjectModal from '@/components/modals/CreateProjectModal';
 import DeleteProjectModal from '@/components/modals/DeleteProjectModal';
 import GlobalSettings from '@/components/settings/GlobalSettings';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
-import { getDefaultModelForCli, getModelDisplayName } from '@/lib/constants/cliModels';
-import Image from 'next/image';
+import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
 import { Image as ImageIcon } from 'lucide-react';
 import type { Project as ProjectSummary } from '@/types/project';
-import { fetchCliStatusSnapshot, createCliStatusFallback } from '@/hooks/useCLI';
-import type { CLIStatus } from '@/types/cli';
-import {
-  ACTIVE_CLI_BRAND_COLORS,
-  ACTIVE_CLI_MODEL_OPTIONS,
-  ACTIVE_CLI_OPTIONS,
-  ACTIVE_CLI_OPTIONS_MAP,
-  DEFAULT_ACTIVE_CLI,
-  normalizeModelForCli,
-  sanitizeActiveCli,
-  type ActiveCliId,
-} from '@/lib/utils/cliOptions';
 
 // Ensure fetch is available
 const fetchAPI = globalThis.fetch || fetch;
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
-// Define assistant brand colors
-const ASSISTANT_OPTIONS = ACTIVE_CLI_OPTIONS.map(({ id, name, icon }) => ({
-  id,
-  name,
-  icon,
-}));
+// Claude is the only agent, so its brand color is used unconditionally.
+const CLAUDE_BRAND_COLOR = '#DE7356';
 
-const assistantBrandColors = ACTIVE_CLI_BRAND_COLORS;
-
-const MODEL_OPTIONS_BY_ASSISTANT = ACTIVE_CLI_MODEL_OPTIONS;
+const CLAUDE_MODELS = getModelDefinitionsForCli(null);
 
 export default function HomePage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
   const [globalSettingsTab, setGlobalSettingsTab] = useState<'general' | 'ai-assistant'>('ai-assistant');
   const [editingProject, setEditingProject] = useState<ProjectSummary | null>(null);
@@ -49,20 +28,10 @@ export default function HomePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [prompt, setPrompt] = useState('');
-  const DEFAULT_ASSISTANT: ActiveCliId = DEFAULT_ACTIVE_CLI;
-  const DEFAULT_MODEL = getDefaultModelForCli(DEFAULT_ASSISTANT);
-  const sanitizeAssistant = useCallback(
-    (cli?: string | null) => sanitizeActiveCli(cli, DEFAULT_ASSISTANT),
-    [DEFAULT_ASSISTANT]
-  );
-  const normalizeModelForAssistant = useCallback(
-    (assistant: string, model?: string | null) => normalizeModelForCli(assistant, model, DEFAULT_ASSISTANT),
-    [DEFAULT_ASSISTANT]
-  );
+  const DEFAULT_MODEL = getDefaultModelForCli(null);
 
   const normalizeProjectPayload = useCallback((project: any): ProjectSummary => {
-    const preferred = sanitizeAssistant(project?.preferredCli ?? project?.preferred_cli);
-    const selected = normalizeModelForAssistant(preferred, project?.selectedModel ?? project?.selected_model);
+    const selected = normalizeModelId(null, project?.selectedModel ?? project?.selected_model);
 
     return {
       id: project.id,
@@ -76,22 +45,14 @@ export default function HomePage() {
       lastMessageAt: project.lastMessageAt ?? project.last_message_at ?? null,
       initialPrompt: project.initialPrompt ?? project.initial_prompt ?? null,
       services: project.services,
-      preferredCli: preferred as ProjectSummary['preferredCli'],
       selectedModel: selected,
-      fallbackEnabled: project.fallbackEnabled ?? project.fallback_enabled ?? false,
     };
-  }, [sanitizeAssistant, normalizeModelForAssistant]);
-  const [selectedAssistant, setSelectedAssistant] = useState<ActiveCliId>(DEFAULT_ASSISTANT);
+  }, []);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [cliStatus, setCLIStatus] = useState<CLIStatus>({});
   const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const selectedAssistantOption = ACTIVE_CLI_OPTIONS_MAP[selectedAssistant];
-  
-  // Get available models based on current assistant
-  const availableModels = MODEL_OPTIONS_BY_ASSISTANT[selectedAssistant] || [];
-  
+
   // Sync with Global Settings (until user overrides locally)
   const { settings: globalSettings } = useGlobalSettings();
   
@@ -106,55 +67,46 @@ export default function HomePage() {
       setUsingGlobalDefaults(true);
     } else {
       // Navigation within session - check for stored selections
-      const storedAssistantRaw = sessionStorage.getItem('selectedAssistant');
       const storedModelRaw = sessionStorage.getItem('selectedModel');
 
       if (storedModelRaw) {
-        const storedAssistant = sanitizeAssistant(storedAssistantRaw);
-        const storedModel = normalizeModelForAssistant(storedAssistant, storedModelRaw);
-        setSelectedAssistant(storedAssistant);
-        setSelectedModel(storedModel);
+        setSelectedModel(normalizeModelId(null, storedModelRaw));
         setUsingGlobalDefaults(false);
         setIsInitialLoad(false);
         return;
       }
     }
-    
+
     // Clean up navigation flag on unmount
     return () => {
       // Don't clear on navigation, only on actual page unload
     };
-  }, [sanitizeAssistant, normalizeModelForAssistant]);
-  
+  }, []);
+
   // Apply global settings when using defaults
   useEffect(() => {
     if (!usingGlobalDefaults || !isInitialLoad) return;
-    
-    const cli = sanitizeAssistant(globalSettings?.default_cli);
-    setSelectedAssistant(cli);
-    const modelFromGlobal = globalSettings?.cli_settings?.[cli]?.model;
-    setSelectedModel(normalizeModelForAssistant(cli, modelFromGlobal));
-  }, [globalSettings, usingGlobalDefaults, isInitialLoad, sanitizeAssistant, normalizeModelForAssistant]);
-  
+
+    const modelFromGlobal = globalSettings?.cli_settings?.claude?.model;
+    setSelectedModel(normalizeModelId(null, modelFromGlobal));
+  }, [globalSettings, usingGlobalDefaults, isInitialLoad]);
+
   // Save selections to sessionStorage when they change
   useEffect(() => {
-    if (!isInitialLoad && selectedAssistant && selectedModel) {
-      const normalizedAssistant = sanitizeAssistant(selectedAssistant);
-      sessionStorage.setItem('selectedAssistant', normalizedAssistant);
-      sessionStorage.setItem('selectedModel', normalizeModelForAssistant(normalizedAssistant, selectedModel));
+    if (!isInitialLoad && selectedModel) {
+      sessionStorage.setItem('selectedModel', normalizeModelId(null, selectedModel));
     }
-  }, [selectedAssistant, selectedModel, isInitialLoad, sanitizeAssistant, normalizeModelForAssistant]);
-  
+  }, [selectedModel, isInitialLoad]);
+
   // Clear navigation flag on page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
       sessionStorage.removeItem('navigationFlag');
     };
-    
+
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
-  const [showAssistantDropdown, setShowAssistantDropdown] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<{ id: string; name: string; url: string; path: string; file?: File }[]>([]);
@@ -163,39 +115,12 @@ export default function HomePage() {
   const router = useRouter();
   const prefetchTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const assistantDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Check CLI installation status
-  useEffect(() => {
-    const checkingStatus = ASSISTANT_OPTIONS.reduce<CLIStatus>((acc, cli) => {
-      acc[cli.id] = {
-        installed: false,
-        checking: true,
-        available: false,
-        configured: false,
-      };
-      return acc;
-    }, {});
-    setCLIStatus(checkingStatus);
-
-    fetchCliStatusSnapshot()
-      .then((status) => setCLIStatus(status))
-      .catch((error) => {
-        console.error('Failed to check CLI status:', error);
-        setCLIStatus(createCliStatusFallback());
-      });
-  }, []);
 
   // Click outside handler
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as Node;
-
-      const assistantEl = assistantDropdownRef.current;
-      if (assistantEl && !assistantEl.contains(target)) {
-        setShowAssistantDropdown(false);
-      }
 
       const modelEl = modelDropdownRef.current;
       if (modelEl && !modelEl.contains(target)) {
@@ -248,16 +173,6 @@ export default function HomePage() {
     });
   };
 
-  // Format CLI and model information
-  const formatCliInfo = (cli?: string, model?: string) => {
-    const normalizedCli = sanitizeAssistant(cli);
-    const assistantOption = ACTIVE_CLI_OPTIONS_MAP[normalizedCli];
-    const cliName = assistantOption?.name ?? 'Claude Code';
-    const modelId = normalizeModelForAssistant(normalizedCli, model);
-    const modelLabel = getModelDisplayName(normalizedCli, modelId);
-    return `${cliName} • ${modelLabel}`;
-  };
-
   const formatFullTime = (dateString: string) => {
     return new Date(dateString).toLocaleString('en-US', {
       year: 'numeric',
@@ -308,8 +223,6 @@ export default function HomePage() {
       setProjects([]);
     }
   }, [normalizeProjectPayload]);
-  
-  async function onCreated() { await load(); }
   
   async function start(projectId: string) {
     try {
@@ -486,7 +399,6 @@ export default function HomePage() {
           project_id: projectId,
           name: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
           initialPrompt: prompt.trim(),
-          preferredCli: selectedAssistant,
           selectedModel
         })
       });
@@ -559,7 +471,6 @@ export default function HomePage() {
               instruction: prompt.trim(), // Original prompt without image paths
               images: imageData,
               isInitialPrompt: true,
-              cliPreference: selectedAssistant,
               selectedModel
             })
           });
@@ -574,7 +485,7 @@ export default function HomePage() {
         }
       }
       
-      // Navigate to chat page with model and CLI parameters
+      // Navigate to chat page with the selected model
       uploadedImages.forEach(image => {
         if (image.url) {
           URL.revokeObjectURL(image.url);
@@ -584,7 +495,6 @@ export default function HomePage() {
       setPrompt('');
 
       const params = new URLSearchParams();
-      if (selectedAssistant) params.set('cli', selectedAssistant);
       if (selectedModel) params.set('model', selectedModel);
       router.push(`/${createdProjectId}/chat${params.toString() ? '?' + params.toString() : ''}`);
       
@@ -646,26 +556,12 @@ export default function HomePage() {
       timers.clear();
       document.removeEventListener('paste', handlePaste);
     };
-  }, [selectedAssistant, handleFiles, load]);
-
-  // Update models when assistant changes
-  const handleAssistantChange = (assistant: string) => {
-    // Don't allow selecting uninstalled CLIs
-    if (!cliStatus[assistant]?.installed) return;
-
-    const sanitized = sanitizeAssistant(assistant);
-    setUsingGlobalDefaults(false);
-    setIsInitialLoad(false);
-    setSelectedAssistant(sanitized);
-    setSelectedModel(getDefaultModelForCli(sanitized));
-
-    setShowAssistantDropdown(false);
-  };
+  }, [handleFiles, load]);
 
   const handleModelChange = (modelId: string) => {
     setUsingGlobalDefaults(false);
     setIsInitialLoad(false);
-    setSelectedModel(normalizeModelForAssistant(selectedAssistant, modelId));
+    setSelectedModel(normalizeModelId(null, modelId));
     setShowModelDropdown(false);
   };
 
@@ -675,23 +571,23 @@ export default function HomePage() {
       {/* Radial gradient background from bottom center */}
       <div className="absolute inset-0">
         <div className="absolute inset-0 bg-white " />
-        <div 
+        <div
           className="absolute inset-0 hidden transition-all duration-1000 ease-in-out"
           style={{
-            background: `radial-gradient(circle at 50% 100%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}66 0%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}4D 25%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}33 50%, 
+            background: `radial-gradient(circle at 50% 100%,
+              ${CLAUDE_BRAND_COLOR}66 0%,
+              ${CLAUDE_BRAND_COLOR}4D 25%,
+              ${CLAUDE_BRAND_COLOR}33 50%,
               transparent 70%)`
           }}
         />
         {/* Light mode gradient - subtle */}
-        <div 
+        <div
           className="absolute inset-0 block transition-all duration-1000 ease-in-out"
           style={{
-            background: `radial-gradient(circle at 50% 100%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}40 0%, 
-              ${(assistantBrandColors[selectedAssistant] || assistantBrandColors.claude)}26 25%, 
+            background: `radial-gradient(circle at 50% 100%,
+              ${CLAUDE_BRAND_COLOR}40 0%,
+              ${CLAUDE_BRAND_COLOR}26 25%,
               transparent 50%)`
           }}
         />
@@ -755,8 +651,7 @@ export default function HomePage() {
                 </div>
               ) : (
                 projects.map((project) => {
-                  const projectCli = sanitizeAssistant(project.preferredCli);
-                  const projectColor = assistantBrandColors[projectCli] || assistantBrandColors[DEFAULT_ASSISTANT];
+                  const projectColor = CLAUDE_BRAND_COLOR;
                   return (
                     <div 
                       key={project.id}
@@ -812,7 +707,6 @@ export default function HomePage() {
                           onClick={() => {
                             // Pass current model selection when navigating from sidebar
                             const params = new URLSearchParams();
-                            if (selectedAssistant) params.set('cli', selectedAssistant);
                             if (selectedModel) params.set('model', selectedModel);
                             router.push(`/${project.id}/chat${params.toString() ? '?' + params.toString() : ''}`);
                           }}
@@ -839,7 +733,7 @@ export default function HomePage() {
                             <div className="text-gray-500 text-xs">
                               {formatTime(project.lastMessageAt || project.createdAt)}
                             </div>
-                            {project.preferredCli && (
+                            {project.selectedModel && (
                               <div className="flex items-center gap-1">
                                 <span className="text-gray-400 text-xs">•</span>
                                 <span
@@ -848,7 +742,7 @@ export default function HomePage() {
                                     color: (projectColor || '#6B7280') + 'CC'
                                   }}
                                 >
-                                  {formatCliInfo(projectCli, project.selectedModel ?? undefined)}
+                                  {getModelDisplayName(null, project.selectedModel)}
                                 </span>
                               </div>
                             )}
@@ -914,7 +808,7 @@ export default function HomePage() {
                   className="font-extrabold tracking-tight select-none transition-colors duration-1000 ease-in-out"
                   style={{
                     fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-                    color: (assistantBrandColors[selectedAssistant] || assistantBrandColors.claude),
+                    color: CLAUDE_BRAND_COLOR,
                     letterSpacing: '-0.06em',
                     fontWeight: 800,
                     fontSize: '72px',
@@ -1024,85 +918,24 @@ export default function HomePage() {
                     />
                   </label>
                 </div>
-                {/* Agent Selector */}
-                <div className="relative z-[200]" ref={assistantDropdownRef}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAssistantDropdown(!showAssistantDropdown);
-                      setShowModelDropdown(false);
-                    }}
-                    className="justify-center whitespace-nowrap text-sm font-medium transition-colors duration-100 ease-in-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 border border-gray-200/50 bg-transparent shadow-sm hover:bg-gray-50 hover:border-gray-300/50 px-3 py-2 flex h-8 items-center gap-1 rounded-full text-gray-700 hover:text-gray-900 focus-visible:ring-0"
-                  >
-                    <div className="w-4 h-4 rounded overflow-hidden">
-                      <Image
-                        src={selectedAssistantOption?.icon ?? '/claude.png'}
-                        alt={selectedAssistantOption?.name ?? 'Claude Code'}
-                        width={16}
-                        height={16}
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-                    <span className="hidden md:flex text-sm font-medium">
-                      {selectedAssistantOption?.name ?? 'Claude Code'}
-                    </span>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 -960 960 960" className="shrink-0 h-3 w-3 rotate-90" fill="currentColor">
-                      <path d="M530-481 353-658q-9-9-8.5-21t9.5-21 21.5-9 21.5 9l198 198q5 5 7 10t2 11-2 11-7 10L396-261q-9 9-21 8.5t-21-9.5-9-21.5 9-21.5z"/>
-                    </svg>
-                  </button>
-                  
-                  {showAssistantDropdown && (
-                    <div className="absolute top-full mt-1 left-0 z-[300] min-w-full whitespace-nowrap rounded-2xl border border-gray-200 bg-white backdrop-blur-xl shadow-lg">
-                      {ASSISTANT_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          onClick={() => handleAssistantChange(option.id)}
-                          disabled={!cliStatus[option.id]?.installed}
-                          className={`w-full flex items-center gap-2 px-3 py-2 text-left first:rounded-t-2xl last:rounded-b-2xl transition-colors ${
-                            !cliStatus[option.id]?.installed
-                              ? 'opacity-50 cursor-not-allowed text-gray-400 '
-                              : selectedAssistant === option.id 
-                              ? 'bg-gray-100 text-black font-semibold' 
-                              : 'text-gray-800 hover:text-black hover:bg-gray-100 '
-                          }`}
-                        >
-                          <div className="w-4 h-4 rounded overflow-hidden">
-                            <Image
-                              src={option.icon ?? '/claude.png'}
-                              alt={option.name}
-                              width={16}
-                              height={16}
-                              className="w-full h-full object-contain"
-                            />
-                          </div>
-                          <span className="text-sm font-medium">{option.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                
                 {/* Model Selector */}
                 <div className="relative z-[200]" ref={modelDropdownRef}>
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowModelDropdown((current) => !current);
-                      setShowAssistantDropdown(false);
-                    }}
+                    onClick={() => setShowModelDropdown((current) => !current)}
                     className="justify-center whitespace-nowrap text-sm font-medium transition-colors duration-100 ease-in-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 border border-gray-200/50 bg-transparent shadow-sm hover:bg-gray-50 hover:border-gray-300/50 px-3 py-2 flex h-8 items-center gap-1 rounded-full text-gray-700 hover:text-gray-900 focus-visible:ring-0 min-w-[140px]"
                   >
                     <span className="text-sm font-medium whitespace-nowrap">
-                      {availableModels.find(m => m.id === selectedModel)?.name ?? getModelDisplayName(selectedAssistant, selectedModel)}
+                      {CLAUDE_MODELS.find(m => m.id === selectedModel)?.name ?? getModelDisplayName(null, selectedModel)}
                     </span>
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 -960 960 960" className="shrink-0 h-3 w-3 rotate-90 ml-auto" fill="currentColor">
                       <path d="M530-481 353-658q-9-9-8.5-21t9.5-21 21.5-9 21.5 9l198 198q5 5 7 10t2 11-2 11-7 10L396-261q-9 9-21 8.5t-21-9.5-9-21.5 9-21.5z"/>
                     </svg>
                   </button>
-                  
+
                   {showModelDropdown && (
                     <div className="absolute top-full mt-1 left-0 z-[300] min-w-full max-h-[300px] overflow-y-auto rounded-2xl border border-gray-200 bg-white backdrop-blur-xl shadow-lg">
-                      {availableModels.map((model) => (
+                      {CLAUDE_MODELS.map((model) => (
                           <button
                             key={model.id}
                             onClick={() => handleModelChange(model.id)}

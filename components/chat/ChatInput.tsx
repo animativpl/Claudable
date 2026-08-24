@@ -17,14 +17,6 @@ interface UploadedImage {
 interface ModelPickerOption {
   id: string;
   name: string;
-  cli: string;
-  cliName: string;
-  available: boolean;
-}
-
-interface CliPickerOption {
-  id: string;
-  name: string;
   available: boolean;
 }
 
@@ -35,16 +27,12 @@ interface ChatInputProps {
   mode?: 'act' | 'chat';
   onModeChange?: (mode: 'act' | 'chat') => void;
   projectId?: string;
-  preferredCli?: string;
   selectedModel?: string;
   thinkingMode?: boolean;
   onThinkingModeChange?: (enabled: boolean) => void;
   modelOptions?: ModelPickerOption[];
   onModelChange?: (option: ModelPickerOption) => void;
   modelChangeDisabled?: boolean;
-  cliOptions?: CliPickerOption[];
-  onCliChange?: (cliId: string) => void;
-  cliChangeDisabled?: boolean;
   isRunning?: boolean;
 }
 
@@ -55,16 +43,12 @@ export default function ChatInput({
   mode = 'act',
   onModeChange,
   projectId,
-  preferredCli = 'claude',
   selectedModel = '',
   thinkingMode = false,
   onThinkingModeChange,
   modelOptions = [],
   onModelChange,
   modelChangeDisabled = false,
-  cliOptions = [],
-  onCliChange,
-  cliChangeDisabled = false,
   isRunning = false
 }: ChatInputProps) {
   const [message, setMessage] = useState('');
@@ -75,39 +59,16 @@ export default function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submissionLockRef = useRef(false);
-  const supportsImageUpload = preferredCli !== 'cursor' && preferredCli !== 'qwen' && preferredCli !== 'glm';
-
-  // Log CLI compatibility details
-  console.log('🔧 CLI Compatibility Check:', {
-    preferredCli,
-    supportsImageUpload,
-    projectId: projectId ? 'valid' : 'missing',
-    uploadButtonAvailable: supportsImageUpload && !!projectId
-  });
-
-  // Inform the user about the current state
-  if (supportsImageUpload && projectId) {
-    console.log('✅ Image upload is ready! Click the upload button or drag in a file.');
-  } else if (!supportsImageUpload) {
-    console.log('❌ The current CLI does not support image uploads. Please switch to Claude CLI.');
-  } else {
-    console.log('❌ Please select a project.');
-  }
-
-  const modelOptionsForCli = useMemo(
-    () => modelOptions.filter(option => option.cli === preferredCli),
-    [modelOptions, preferredCli]
-  );
 
   const selectedModelValue = useMemo(() => {
-    return modelOptionsForCli.some(opt => opt.id === selectedModel) ? selectedModel : '';
-  }, [modelOptionsForCli, selectedModel]);
+    return modelOptions.some(opt => opt.id === selectedModel) ? selectedModel : '';
+  }, [modelOptions, selectedModel]);
 
   useEffect(() => {
-    if (!disabled && !cliChangeDisabled && !modelChangeDisabled) {
+    if (!disabled && !modelChangeDisabled) {
       textareaRef.current?.focus();
     }
-  }, [disabled, cliChangeDisabled, modelChangeDisabled]);
+  }, [disabled, modelChangeDisabled]);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) {
@@ -203,15 +164,8 @@ export default function ChatInput({
       return;
     }
 
-    if (!supportsImageUpload) {
-      console.error('❌ Current CLI does not support image upload:', preferredCli);
-      alert(`Only Claude CLI supports image uploads.\nCurrent CLI: ${preferredCli}\nSwitch to Claude CLI.`);
-      return;
-    }
-
     console.log('📸 Starting image upload process:', {
       projectId,
-      cli: preferredCli,
       fileCount: files.length
     });
 
@@ -281,7 +235,7 @@ export default function ChatInput({
         fileInputRef.current.value = '';
       }
     }
-  }, [projectId, supportsImageUpload, preferredCli]);
+  }, [projectId]);
 
   useEffect(() => {
     adjustTextareaHeight();
@@ -290,7 +244,7 @@ export default function ChatInput({
   // Handle clipboard paste for images
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
-      if (!projectId || !supportsImageUpload) return;
+      if (!projectId) return;
       
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -333,16 +287,16 @@ export default function ChatInput({
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [projectId, supportsImageUpload, handleFiles]);
+  }, [projectId, handleFiles]);
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('📸 Drag enter event triggered:', { projectId, supportsImageUpload });
-    if (projectId && supportsImageUpload) {
+    console.log('📸 Drag enter event triggered:', { projectId });
+    if (projectId) {
       setIsDragOver(true);
     } else {
-      console.log('📸 Drag enter ignored: missing projectId or unsupported CLI');
+      console.log('📸 Drag enter ignored: missing projectId');
     }
   };
 
@@ -357,7 +311,7 @@ export default function ChatInput({
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (projectId && supportsImageUpload) {
+    if (projectId) {
       e.dataTransfer.dropEffect = 'copy';
     } else {
       e.dataTransfer.dropEffect = 'none';
@@ -373,7 +327,6 @@ export default function ChatInput({
       hasFiles: !!e.dataTransfer.files,
       fileCount: e.dataTransfer.files?.length || 0,
       projectId,
-      supportsImageUpload,
       files: Array.from(e.dataTransfer.files || []).map(f => ({
         name: f.name,
         size: f.size,
@@ -381,8 +334,8 @@ export default function ChatInput({
       }))
     });
 
-    if (!projectId || !supportsImageUpload) {
-      console.log('📸 Drop event blocked: missing projectId or unsupported CLI');
+    if (!projectId) {
+      console.log('📸 Drop event blocked: missing projectId');
       return;
     }
 
@@ -425,92 +378,57 @@ export default function ChatInput({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             {projectId && (
-              (!supportsImageUpload) ? (
-                <div
-                  className="flex items-center justify-center w-8 h-8 text-gray-300 cursor-not-allowed opacity-50 rounded-full"
-                  title={
-                    preferredCli === 'qwen'
-                      ? 'Qwen Coder does not support image input. Please use Claude CLI.'
-                      : preferredCli === 'cursor'
-                      ? 'Cursor CLI does not support image input. Please use Claude CLI.'
-                      : 'GLM CLI supports text only. Please use Claude CLI.'
+              <div
+                className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Upload images"
+                onClick={() => {
+                  console.log('📸 Upload button clicked:', {
+                    projectId,
+                    isUploading,
+                    disabled
+                  });
+                  if (fileInputRef.current) {
+                    console.log('📸 Triggering file input click');
+                    fileInputRef.current.click();
+                  } else {
+                    console.error('📸 fileInputRef is null');
                   }
-                >
-                  <ImageIcon className="h-4 w-4" />
-                </div>
-              ) : (
-                <div
-                  className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Upload images"
-                  onClick={() => {
-                    console.log('📸 Upload button clicked:', {
-                      projectId,
-                      supportsImageUpload,
-                      isUploading,
-                      disabled
-                    });
-                    if (fileInputRef.current) {
-                      console.log('📸 Triggering file input click');
-                      fileInputRef.current.click();
-                    } else {
-                      console.error('📸 fileInputRef is null');
-                    }
-                  }}
-                >
-                  <ImageIcon className="h-4 w-4" />
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleImageUpload}
-                    disabled={isUploading || disabled}
-                    className="hidden"
-                  />
-                </div>
-              )
+                }}
+              >
+                <ImageIcon className="h-4 w-4" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  disabled={isUploading || disabled}
+                  className="hidden"
+                />
+              </div>
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex flex-col text-[11px] text-gray-500 ">
-              <span>Assistant</span>
-              <select
-                value={preferredCli}
-                onChange={(e) => {
-                  onCliChange?.(e.target.value);
-                  requestAnimationFrame(() => textareaRef.current?.focus());
-                }}
-                disabled={cliChangeDisabled || !onCliChange}
-                className="mt-1 w-32 rounded-md border border-gray-300 bg-white text-gray-700 text-xs py-1 px-2 focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-60"
-              >
-                {cliOptions.length === 0 && <option value={preferredCli}>{preferredCli}</option>}
-                {cliOptions.map(option => (
-                  <option key={option.id} value={option.id} disabled={!option.available}>
-                    {option.name}{!option.available ? ' (Unavailable)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col text-[11px] text-gray-500 ">
               <span>Model</span>
               <select
                 value={selectedModelValue}
                 onChange={(e) => {
-                  const option = modelOptionsForCli.find(opt => opt.id === e.target.value);
+                  const option = modelOptions.find(opt => opt.id === e.target.value);
                   if (option) {
                     onModelChange?.(option);
                     requestAnimationFrame(() => textareaRef.current?.focus());
                   }
                 }}
-                disabled={modelChangeDisabled || !onModelChange || modelOptionsForCli.length === 0}
+                disabled={modelChangeDisabled || !onModelChange || modelOptions.length === 0}
                 className="mt-1 w-40 rounded-md border border-gray-300 bg-white text-gray-700 text-xs py-1 px-2 focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-60"
               >
-                {modelOptionsForCli.length === 0 && <option value="">No models available</option>}
-                {modelOptionsForCli.length > 0 && selectedModelValue === '' && (
+                {modelOptions.length === 0 && <option value="">No models available</option>}
+                {modelOptions.length > 0 && selectedModelValue === '' && (
                   <option value="" disabled>Select model</option>
                 )}
-                {modelOptionsForCli.map(option => (
+                {modelOptions.map(option => (
                   <option key={option.id} value={option.id} disabled={!option.available}>
                     {option.name}{!option.available ? ' (Unavailable)' : ''}
                   </option>
@@ -532,7 +450,7 @@ export default function ChatInput({
             disabled={disabled || isUploading || isSubmitting}
             style={{ minHeight: '60px' }}
           />
-          {isDragOver && projectId && supportsImageUpload && (
+          {isDragOver && projectId && (
             <div className="pointer-events-none absolute inset-0 bg-blue-50/90 rounded-md flex items-center justify-center z-10 border-2 border-dashed border-blue-500">
               <div className="text-center">
                 <div className="text-2xl mb-2">📸</div>

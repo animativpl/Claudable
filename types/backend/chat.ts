@@ -54,8 +54,6 @@ export interface ChatActRequest {
   instruction: string;
   allowGlobs?: string[];
   conversationId?: string;
-  cliPreference?: string;
-  fallbackEnabled?: boolean;
   images?: ImageAttachment[];
   isInitialPrompt?: boolean;
   selectedModel?: string;

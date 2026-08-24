@@ -7,8 +7,6 @@ import ServiceConnectionModal from '@/components/modals/ServiceConnectionModal';
 import { FaCog } from 'react-icons/fa';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getModelDefinitionsForCli, normalizeModelId } from '@/lib/constants/cliModels';
-import { fetchCliStatusSnapshot, createCliStatusFallback } from '@/hooks/useCLI';
-import type { CLIStatus } from '@/types/cli';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
@@ -18,81 +16,7 @@ interface GlobalSettingsProps {
   initialTab?: 'general' | 'ai-agents' | 'services' | 'about';
 }
 
-interface CLIOption {
-  id: string;
-  name: string;
-  icon: string;
-  description: string;
-  models: { id: string; name: string; }[];
-  color: string;
-  brandColor: string;
-  downloadUrl: string;
-  installCommand: string;
-  enabled?: boolean;
-}
-
-const CLI_OPTIONS: CLIOption[] = [
-  {
-    id: 'claude',
-    name: 'Claude Code',
-    icon: '',
-    description: 'Anthropic Claude with advanced reasoning',
-    color: 'from-orange-500 to-red-600',
-    brandColor: '#DE7356',
-    downloadUrl: 'https://docs.anthropic.com/en/docs/claude-code/overview',
-    installCommand: 'npm install -g @anthropic-ai/claude-code',
-    enabled: true,
-    models: getModelDefinitionsForCli('claude').map(({ id, name }) => ({ id, name })),
-  },
-  {
-    id: 'codex',
-    name: 'Codex CLI',
-    icon: '',
-    description: 'OpenAI Codex agent with GPT-5 support',
-    color: 'from-slate-900 to-gray-700',
-    brandColor: '#000000',
-    downloadUrl: 'https://github.com/openai/codex',
-    installCommand: 'npm install -g @openai/codex',
-    enabled: true,
-    models: getModelDefinitionsForCli('codex').map(({ id, name }) => ({ id, name })),
-  },
-  {
-    id: 'cursor',
-    name: 'Cursor Agent',
-    icon: '',
-    description: 'Cursor CLI with multi-model router and autonomous tooling',
-    color: 'from-slate-500 to-gray-600',
-    brandColor: '#6B7280',
-    downloadUrl: 'https://docs.cursor.com/en/cli/overview',
-    installCommand: 'curl https://cursor.com/install -fsS | bash',
-    enabled: true,
-    models: getModelDefinitionsForCli('cursor').map(({ id, name }) => ({ id, name })),
-  },
-  {
-    id: 'qwen',
-    name: 'Qwen Coder',
-    icon: '',
-    description: 'Alibaba Qwen Code CLI with sandbox capabilities',
-    color: 'from-emerald-500 to-teal-600',
-    brandColor: '#11A97D',
-    downloadUrl: 'https://github.com/QwenLM/qwen-code',
-    installCommand: 'npm install -g @qwen-code/qwen-code',
-    enabled: true,
-    models: getModelDefinitionsForCli('qwen').map(({ id, name }) => ({ id, name })),
-  },
-  {
-    id: 'glm',
-    name: 'GLM CLI',
-    icon: '',
-    description: 'Zhipu GLM agent running on Claude Code runtime',
-    color: 'from-blue-500 to-indigo-600',
-    brandColor: '#1677FF',
-    downloadUrl: 'https://docs.z.ai/devpack/tool/claude',
-    installCommand: 'zai devpack install claude',
-    enabled: true,
-    models: getModelDefinitionsForCli('glm').map(({ id, name }) => ({ id, name })),
-  },
-];
+const CLAUDE_MODELS = getModelDefinitionsForCli(null).map(({ id, name }) => ({ id, name }));
 
 // Global settings are provided by context
 
@@ -112,14 +36,10 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
   const [tokens, setTokens] = useState<{ [key: string]: ServiceToken | null }>({
     github: null
   });
-  const [cliStatus, setCLIStatus] = useState<CLIStatus>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const { settings: globalSettings, setSettings: setGlobalSettings, refresh: refreshGlobalSettings } = useGlobalSettings();
   const [isLoading, setIsLoading] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [installModalOpen, setInstallModalOpen] = useState(false);
-  const [selectedCLI, setSelectedCLI] = useState<CLIOption | null>(null);
-  const [apiKeyVisibility, setApiKeyVisibility] = useState<Record<string, boolean>>({});
 
   // Show toast function
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -177,30 +97,13 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
     }
   }, [setGlobalSettings]);
 
-  const checkCLIStatus = useCallback(async () => {
-    const checkingStatus: CLIStatus = CLI_OPTIONS.reduce((acc, cli) => {
-      acc[cli.id] = { installed: true, checking: true };
-      return acc;
-    }, {} as CLIStatus);
-    setCLIStatus(checkingStatus);
-
-    try {
-      const status = await fetchCliStatusSnapshot();
-      setCLIStatus(status);
-    } catch (error) {
-      console.error('Error checking CLI status:', error);
-      setCLIStatus(createCliStatusFallback());
-    }
-  }, []);
-
-  // Load all service tokens and CLI data
+  // Load all service tokens and global settings
   useEffect(() => {
     if (isOpen) {
       loadAllTokens();
       loadGlobalSettings();
-      checkCLIStatus();
     }
-  }, [isOpen, loadAllTokens, loadGlobalSettings, checkCLIStatus]);
+  }, [isOpen, loadAllTokens, loadGlobalSettings]);
 
   const saveGlobalSettings = async () => {
     setIsLoading(true);
@@ -253,58 +156,16 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
   };
 
 
-  const setDefaultCLI = (cliId: string) => {
-    const cliInstalled = cliStatus[cliId]?.installed;
-    if (!cliInstalled) return;
-    
-    setGlobalSettings(prev => ({
-      ...prev,
-      default_cli: cliId
-    }));
-  };
-
-  const setDefaultModel = (cliId: string, modelId: string) => {
+  const setDefaultModel = (modelId: string) => {
     setGlobalSettings(prev => ({
       ...prev,
       cli_settings: {
         ...(prev?.cli_settings ?? {}),
-        [cliId]: {
-          ...(prev?.cli_settings?.[cliId] ?? {}),
-          model: normalizeModelId(cliId, modelId)
+        claude: {
+          ...(prev?.cli_settings?.claude ?? {}),
+          model: normalizeModelId(null, modelId)
         }
       }
-    }));
-  };
-
-  const setCliApiKey = (cliId: string, apiKey: string) => {
-    setGlobalSettings(prev => {
-      const nextCliSettings = { ...(prev?.cli_settings ?? {}) };
-      const existing = { ...(nextCliSettings[cliId] ?? {}) };
-      const trimmed = apiKey.trim();
-
-      if (trimmed.length > 0) {
-        existing.apiKey = trimmed;
-        nextCliSettings[cliId] = existing;
-      } else {
-        delete existing.apiKey;
-        if (Object.keys(existing).length > 0) {
-          nextCliSettings[cliId] = existing;
-        } else {
-          delete nextCliSettings[cliId];
-        }
-      }
-
-      return {
-        ...prev,
-        cli_settings: nextCliSettings,
-      };
-    });
-  };
-
-  const toggleApiKeyVisibility = (cliId: string) => {
-    setApiKeyVisibility(prev => ({
-      ...prev,
-      [cliId]: !prev[cliId],
     }));
   };
 
@@ -421,33 +282,16 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
             {activeTab === 'ai-agents' && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <h3 className="text-lg font-medium text-gray-900 mb-1">CLI Agents</h3>
-                      <p className="text-sm text-gray-600 ">
-                        Manage your AI coding assistants
-                      </p>
-                    </div>
-                    {/* Inline Default CLI Selector */}
-                    <div className="flex items-center gap-2 ml-6 pl-6 border-l border-gray-200 ">
-                      <span className="text-sm text-gray-600 ">Default:</span>
-                      <select
-                        value={globalSettings.default_cli}
-                        onChange={(e) => setDefaultCLI(e.target.value)}
-                        className="pl-3 pr-8 py-1.5 text-xs font-medium border border-gray-200/50 rounded-full bg-transparent hover:bg-gray-50 hover:border-gray-300/50 text-gray-700 focus:outline-none focus:ring-0 transition-colors cursor-pointer"
-                      >
-                        {CLI_OPTIONS.filter(cli => cliStatus[cli.id]?.installed && cli.enabled !== false).map(cli => (
-                          <option key={cli.id} value={cli.id}>
-                            {cli.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-1">AI Agent</h3>
+                    <p className="text-sm text-gray-600 ">
+                      Claude Code is the only agent Claudable runs
+                    </p>
                   </div>
                   <div className="flex items-center gap-3">
                     {saveMessage && (
                       <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm ${
-                        saveMessage.type === 'success' 
+                        saveMessage.type === 'success'
                           ? 'bg-green-100 text-green-700 '
                           : 'bg-red-100 text-red-700 '
                       }`}>
@@ -463,181 +307,43 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                         {saveMessage.text}
                       </div>
                     )}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={checkCLIStatus}
-                        className="px-3 py-1.5 text-xs font-medium border border-gray-200/50 rounded-full bg-transparent hover:bg-gray-50 hover:border-gray-300/50 text-gray-700 transition-colors"
-                      >
-                        Refresh Status
-                      </button>
-                      <button
-                        onClick={saveGlobalSettings}
-                        disabled={isLoading}
-                        className="px-3 py-1.5 text-xs font-medium bg-gray-900 hover:bg-gray-800 text-white rounded-full transition-colors disabled:opacity-50"
-                      >
-                        {isLoading ? 'Saving...' : 'Save Settings'}
-                      </button>
-                    </div>
+                    <button
+                      onClick={saveGlobalSettings}
+                      disabled={isLoading}
+                      className="px-3 py-1.5 text-xs font-medium bg-gray-900 hover:bg-gray-800 text-white rounded-full transition-colors disabled:opacity-50"
+                    >
+                      {isLoading ? 'Saving...' : 'Save Settings'}
+                    </button>
                   </div>
                 </div>
 
-                {/* CLI Agents Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {CLI_OPTIONS.filter(cli => cli.enabled !== false).map((cli) => {
-                    const status = cliStatus[cli.id];
-                    const settings = globalSettings.cli_settings[cli.id] || {};
-                    const isChecking = status?.checking || false;
-                    const isInstalled = status?.installed || false;
-                    const isDefault = globalSettings.default_cli === cli.id;
+                <div className="border rounded-xl border-gray-200/50 pl-4 pr-8 py-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="flex-shrink-0">
+                      <Image src="/claude.png" alt="Claude" width={32} height={32} className="w-8 h-8" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-gray-900 text-sm">Claude Code</h4>
+                      <p className="text-xs text-gray-600 mt-1 line-clamp-2">
+                        Anthropic Claude with advanced reasoning
+                      </p>
+                    </div>
+                  </div>
 
-                    return (
-                      <div 
-                        key={cli.id} 
-                        onClick={() => isInstalled && setDefaultCLI(cli.id)}
-                        className={`border rounded-xl pl-4 pr-8 py-4 transition-all ${
-                          !isInstalled 
-                            ? 'border-gray-200/50 cursor-not-allowed bg-gray-50/50 ' 
-                            : isDefault 
-                              ? 'cursor-pointer' 
-                              : 'border-gray-200/50 hover:border-gray-300/50 hover:bg-gray-50 cursor-pointer'
-                        }`}
-                        style={isDefault && isInstalled ? {
-                          borderColor: cli.brandColor,
-                          backgroundColor: `${cli.brandColor}08`
-                        } : {}}
-                      >
-                        <div className="flex items-start gap-3 mb-3">
-                          <div className={`flex-shrink-0 ${!isInstalled ? 'opacity-40' : ''}`}>
-                            {cli.id === 'claude' && (
-                              <Image src="/claude.png" alt="Claude" width={32} height={32} className="w-8 h-8" />
-                            )}
-                            {cli.id === 'cursor' && (
-                              <Image src="/cursor.png" alt="Cursor" width={32} height={32} className="w-8 h-8" />
-                            )}
-                            {cli.id === 'codex' && (
-                              <Image src="/oai.png" alt="Codex" width={32} height={32} className="w-8 h-8" />
-                            )}
-                            {cli.id === 'qwen' && (
-                              <Image src="/qwen.png" alt="Qwen" width={32} height={32} className="w-8 h-8" />
-                            )}
-                            {cli.id === 'glm' && (
-                              <Image src="/glm.svg" alt="GLM" width={32} height={32} className="w-8 h-8" />
-                            )}
-                            {cli.id === 'gemini' && (
-                              <Image src="/gemini.png" alt="Gemini" width={32} height={32} className="w-8 h-8" />
-                            )}
-                          </div>
-                          <div className={`flex-1 min-w-0 ${!isInstalled ? 'opacity-40' : ''}`}>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-gray-900 text-sm">{cli.name}</h4>
-                              {isDefault && isInstalled && (
-                                <span className="text-xs font-medium" style={{ color: cli.brandColor }}>
-                                  Default
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                              {cli.description}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Model Selection or Not Installed */}
-                        {isInstalled ? (
-                          <div onClick={(e) => e.stopPropagation()} className="space-y-3">
-                            <select
-                              value={settings.model || ''}
-                              onChange={(e) => setDefaultModel(cli.id, e.target.value)}
-                              className="w-full px-3 py-1.5 border border-gray-200/50 rounded-full bg-transparent hover:bg-gray-50 text-gray-700 text-xs font-medium transition-colors focus:outline-none focus:ring-0"
-                            >
-                              <option value="">Select model</option>
-                              {cli.models.map(model => (
-                                <option key={model.id} value={model.id}>
-                                  {model.name}
-                                </option>
-                              ))}
-                            </select>
-
-                            {cli.id === 'glm' && (
-                              <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-gray-600 ">
-                                  API Key
-                                </label>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type={apiKeyVisibility[cli.id] ? 'text' : 'password'}
-                                    value={settings.apiKey ?? ''}
-                                    onChange={(e) => setCliApiKey(cli.id, e.target.value)}
-                                    placeholder="Enter GLM API key"
-                                    className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      toggleApiKeyVisibility(cli.id);
-                                    }}
-                                    className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg bg-white transition-colors"
-                                  >
-                                    {apiKeyVisibility[cli.id] ? 'Hide' : 'Show'}
-                                  </button>
-                                </div>
-                                <p className="text-[11px] text-gray-500 leading-snug">
-                                  Stored locally and injected as <code className="font-mono">ZHIPU_API_KEY</code> (and aliases) when running GLM.
-                                  Leave blank to rely on server environment variables instead.
-                                </p>
-                              </div>
-                            )}
-                            {cli.id === 'cursor' && (
-                              <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-gray-600 ">
-                                  API Key (optional)
-                                </label>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type={apiKeyVisibility[cli.id] ? 'text' : 'password'}
-                                    value={settings.apiKey ?? ''}
-                                    onChange={(e) => setCliApiKey(cli.id, e.target.value)}
-                                    placeholder="Enter Cursor API key"
-                                    className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      toggleApiKeyVisibility(cli.id);
-                                    }}
-                                    className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg bg-white transition-colors"
-                                  >
-                                    {apiKeyVisibility[cli.id] ? 'Hide' : 'Show'}
-                                  </button>
-                                </div>
-                                <p className="text-[11px] text-gray-500 leading-snug">
-                                  Injected as <code className="font-mono">CURSOR_API_KEY</code> and passed to <code className="font-mono">cursor-agent</code>.
-                                  Leave blank to rely on the logged-in Cursor CLI session.
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div onClick={(e) => e.stopPropagation()}>
-                            <button
-                              onClick={() => {
-                                setSelectedCLI(cli);
-                                setInstallModalOpen(true);
-                              }}
-                              className="w-full px-3 py-1.5 border-2 border-gray-900 rounded-full bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold transition-all transform hover:scale-105"
-                            >
-                              View Guide
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  
+                  <div className="space-y-3">
+                    <select
+                      value={globalSettings.cli_settings.claude?.model || ''}
+                      onChange={(e) => setDefaultModel(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-gray-200/50 rounded-full bg-transparent hover:bg-gray-50 text-gray-700 text-xs font-medium transition-colors focus:outline-none focus:ring-0"
+                    >
+                      <option value="">Select model</option>
+                      {CLAUDE_MODELS.map(model => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
             )}
@@ -802,201 +508,6 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
               </svg>
             )}
             <span className="font-medium">{toast.message}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Install Guide Modal */}
-      {installModalOpen && selectedCLI && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" key={`modal-${selectedCLI.id}`}>
-          <div 
-            className="absolute inset-0 bg-black/60 backdrop-blur-md"
-            onClick={() => {
-              setInstallModalOpen(false);
-              setSelectedCLI(null);
-            }}
-          />
-          
-          <div 
-            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 transform"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="p-5 border-b border-gray-200 ">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {selectedCLI.id === 'claude' && (
-                    <Image src="/claude.png" alt="Claude" width={32} height={32} className="w-8 h-8" />
-                  )}
-                  {selectedCLI.id === 'cursor' && (
-                    <Image src="/cursor.png" alt="Cursor" width={32} height={32} className="w-8 h-8" />
-                  )}
-                  {selectedCLI.id === 'codex' && (
-                    <Image src="/oai.png" alt="Codex" width={32} height={32} className="w-8 h-8" />
-                  )}
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 ">
-                      Install {selectedCLI.name}
-                    </h3>
-                    <p className="text-sm text-gray-600 ">
-                      Follow these steps to get started
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setInstallModalOpen(false);
-                    setSelectedCLI(null);
-                  }}
-                  className="text-gray-600 hover:text-gray-900 transition-colors p-1 hover:bg-gray-100 rounded-lg"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 space-y-4">
-              {/* Step 1: Install */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-gray-900 ">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-full text-white text-xs" style={{ backgroundColor: selectedCLI.brandColor }}>
-                    1
-                  </span>
-                  Install CLI
-                </div>
-                <div className="ml-8 flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
-                  <code className="text-sm text-gray-800 flex-1">
-                    {selectedCLI.installCommand}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      navigator.clipboard.writeText(selectedCLI.installCommand);
-                      showToast('Command copied to clipboard', 'success');
-                    }}
-                    className="text-gray-500 hover:text-gray-700 "
-                    title="Copy command"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M9 3h10a2 2 0 012 2v10M9 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 3v2a2 2 0 002 2h6a2 2 0 002-2V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 2: Authenticate */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-gray-900 ">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-full text-white text-xs" style={{ backgroundColor: selectedCLI.brandColor }}>
-                    2
-                  </span>
-                  {selectedCLI.id === 'gemini' && 'Authenticate (OAuth or API Key)'}
-                  {selectedCLI.id === 'glm' && 'Authenticate (Z.ai DevPack login)'}
-                  {selectedCLI.id === 'qwen' && 'Authenticate (Qwen OAuth or API Key)'}
-                  {selectedCLI.id === 'codex' && 'Start Codex and sign in'}
-                  {selectedCLI.id === 'claude' && 'Start Claude and sign in'}
-                  {selectedCLI.id === 'cursor' && 'Start Cursor CLI and sign in'}
-                </div>
-                <div className="ml-8 flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
-                  <code className="text-sm text-gray-800 flex-1">
-                    {selectedCLI.id === 'claude' ? 'claude' :
-                     selectedCLI.id === 'cursor' ? 'cursor-agent' :
-                     selectedCLI.id === 'codex' ? 'codex' :
-                     selectedCLI.id === 'qwen' ? 'qwen' :
-                     selectedCLI.id === 'glm' ? 'zai' :
-                     selectedCLI.id === 'gemini' ? 'gemini' : ''}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      const authCmd = selectedCLI.id === 'claude' ? 'claude' :
-                                      selectedCLI.id === 'cursor' ? 'cursor-agent' :
-                                      selectedCLI.id === 'codex' ? 'codex' :
-                                      selectedCLI.id === 'qwen' ? 'qwen' :
-                                      selectedCLI.id === 'glm' ? 'zai' :
-                                      selectedCLI.id === 'gemini' ? 'gemini' : '';
-                      if (authCmd) navigator.clipboard.writeText(authCmd);
-                      showToast('Command copied to clipboard', 'success');
-                    }}
-                    className="text-gray-500 hover:text-gray-700 "
-                    title="Copy command"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M9 3h10a2 2 0 012 2v10M9 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 3v2a2 2 0 002 2h6a2 2 0 002-2V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 3: Test */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-medium text-gray-900 ">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-full text-white text-xs" style={{ backgroundColor: selectedCLI.brandColor }}>
-                    3
-                  </span>
-                  Test your installation
-                </div>
-                <div className="ml-8 flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
-                  <code className="text-sm text-gray-800 flex-1">
-                    {selectedCLI.id === 'claude' ? 'claude --version' :
-                     selectedCLI.id === 'cursor' ? 'cursor-agent --version' :
-                     selectedCLI.id === 'codex' ? 'codex --version' :
-                     selectedCLI.id === 'qwen' ? 'qwen --version' :
-                     selectedCLI.id === 'glm' ? 'zai --version' :
-                     selectedCLI.id === 'gemini' ? 'gemini --version' : ''}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      const versionCmd = selectedCLI.id === 'claude' ? 'claude --version' :
-                                        selectedCLI.id === 'cursor' ? 'cursor-agent --version' :
-                                        selectedCLI.id === 'codex' ? 'codex --version' :
-                                        selectedCLI.id === 'qwen' ? 'qwen --version' :
-                                        selectedCLI.id === 'glm' ? 'zai --version' :
-                                        selectedCLI.id === 'gemini' ? 'gemini --version' : '';
-                      if (versionCmd) navigator.clipboard.writeText(versionCmd);
-                      showToast('Command copied to clipboard', 'success');
-                    }}
-                    className="text-gray-500 hover:text-gray-700 "
-                    title="Copy command"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M9 3h10a2 2 0 012 2v10M9 3H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2M9 3v2a2 2 0 002 2h6a2 2 0 002-2V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              {/* Minimal guide only; removed extra info */}
-            </div>
-
-            {/* Footer */}
-            <div className="p-5 border-t border-gray-200 flex justify-between">
-              <button
-                onClick={() => checkCLIStatus()}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                Refresh Status
-              </button>
-              <button
-                onClick={() => {
-                  setInstallModalOpen(false);
-                  setSelectedCLI(null);
-                }}
-                className="px-4 py-2 text-sm bg-gray-900 hover:bg-gray-800 text-white rounded-lg transition-colors"
-              >
-                Done
-              </button>
-            </div>
           </div>
         </div>
       )}

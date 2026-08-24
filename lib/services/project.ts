@@ -24,7 +24,7 @@ export async function getAllProjects(): Promise<Project[]> {
   });
   return projects.map(project => ({
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
   })) as Project[];
 }
 
@@ -38,7 +38,7 @@ export async function getProjectById(id: string): Promise<Project | null> {
   if (!project) return null;
   return {
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
   } as Project;
 }
 
@@ -58,8 +58,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       description: input.description,
       initialPrompt: input.initialPrompt,
       repoPath: projectPath,
-      preferredCli: input.preferredCli || 'claude',
-      selectedModel: normalizeModelId(input.preferredCli || 'claude', input.selectedModel ?? getDefaultModelForCli(input.preferredCli || 'claude')),
+      selectedModel: normalizeModelId(null, input.selectedModel ?? getDefaultModelForCli(null)),
       status: 'idle',
       templateType: 'nextjs',
       lastActiveAt: new Date(),
@@ -71,7 +70,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   console.log(`[ProjectService] Created project: ${project.id}`);
   return {
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
   } as Project;
 }
 
@@ -82,13 +81,8 @@ export async function updateProject(
   id: string,
   input: UpdateProjectInput
 ): Promise<Project> {
-  const existing = await prisma.project.findUnique({
-    where: { id },
-    select: { preferredCli: true },
-  });
-  const targetCli = input.preferredCli ?? existing?.preferredCli ?? 'claude';
   const normalizedModel = input.selectedModel
-    ? normalizeModelId(targetCli, input.selectedModel)
+    ? normalizeModelId(null, input.selectedModel)
     : undefined;
 
   const project = await prisma.project.update({
@@ -105,7 +99,7 @@ export async function updateProject(
   console.log(`[ProjectService] Updated project: ${id}`);
   return {
     ...project,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
   } as Project;
 }
 
@@ -158,69 +152,4 @@ export async function updateProjectStatus(
     },
   });
   console.log(`[ProjectService] Updated project status: ${id} -> ${status}`);
-}
-
-export interface ProjectCliPreference {
-  preferredCli: string;
-  fallbackEnabled: boolean;
-  selectedModel: string | null;
-}
-
-export async function getProjectCliPreference(projectId: string): Promise<ProjectCliPreference | null> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: {
-      preferredCli: true,
-      fallbackEnabled: true,
-      selectedModel: true,
-    },
-  });
-
-  if (!project) {
-    return null;
-  }
-
-  return {
-    preferredCli: project.preferredCli ?? 'claude',
-    fallbackEnabled: project.fallbackEnabled ?? false,
-    selectedModel: normalizeModelId(project.preferredCli ?? 'claude', project.selectedModel ?? undefined),
-  };
-}
-
-export async function updateProjectCliPreference(
-  projectId: string,
-  input: Partial<ProjectCliPreference>
-): Promise<ProjectCliPreference> {
-  const existing = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { preferredCli: true },
-  });
-  const targetCli = input.preferredCli ?? existing?.preferredCli ?? 'claude';
-
-  const result = await prisma.project.update({
-    where: { id: projectId },
-    data: {
-      ...(input.preferredCli ? { preferredCli: input.preferredCli } : {}),
-      ...(typeof input.fallbackEnabled === 'boolean'
-        ? { fallbackEnabled: input.fallbackEnabled }
-        : {}),
-      ...(input.selectedModel
-        ? { selectedModel: normalizeModelId(targetCli, input.selectedModel) }
-        : input.selectedModel === null
-        ? { selectedModel: null }
-        : {}),
-      updatedAt: new Date(),
-    },
-    select: {
-      preferredCli: true,
-      fallbackEnabled: true,
-      selectedModel: true,
-    },
-  });
-
-  return {
-    preferredCli: result.preferredCli ?? 'claude',
-    fallbackEnabled: result.fallbackEnabled ?? false,
-    selectedModel: normalizeModelId(result.preferredCli ?? 'claude', result.selectedModel ?? undefined),
-  };
 }
