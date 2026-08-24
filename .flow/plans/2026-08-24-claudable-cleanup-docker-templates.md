@@ -23,9 +23,12 @@
 - Chirurgia, nie remont: dotykamy wyłącznie tego, co wynika z zadania. Nie dekomponujemy `app/[project_id]/chat/page.tsx` ani `components/chat/ChatLog.tsx` — mimo rozmiaru.
 - Integracja GitHub zostaje nietknięta (`lib/services/{github,git,tokens}.ts`, `components/modals/GitHubRepoModal.tsx`, model `ServiceToken`).
 - Każde zadanie kończy się commitem. Wiadomości commitów po angielsku, tryb rozkazujący.
+
 **Grepy weryfikacyjne wykluczają, nigdy nie wyliczają.** Nie podawaj ani listy katalogów, ani listy rozszerzeń — wyłącznie wykluczenia: `--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .`
 
 Powód jest empiryczny i kosztował już cztery przeoczenia w tym runie, wszystkie tej samej klasy: wzorzec był poprawny, a dziurą było **wskazanie miejsca**. Handler WebSocket leżał w `pages/`, którego lista katalogów nie obejmowała. Domyślne ustawienia z usuniętymi agentami leżały w `contexts/`, którego też nie. Pierwsza próba naprawy zamieniła listę katalogów na listę rozszerzeń — i natychmiast przepuściła `.md`, `.prisma`, `.yml`, `Dockerfile*` oraz `data/global-settings.json`, czyli dokładnie ten artefakt, o który chodziło w poprzednim znalezisku.
+
+**Skoro grep widzi całe drzewo, `Expected` musi wymieniać znane trafienia z ich właścicielem, a nie udawać, że ich nie ma.** Zakres wykluczający wciąga do wyniku pliki należące do innych zadań tej samej gałęzi — `README.md` do Task 22, `prisma/schema.prisma` do Task 7 i 12. `Expected: brak wyników` czyni wtedy bramkę nieprzechodnią: da się ją przejść tylko przez wciągnięcie cudzej roboty albo przez nieuruchomienie grepu. Pisz więc `Expected: wyłącznie <lista> — każde należy do Task N`, i traktuj każde inne trafienie jako niedokończone zadanie.
 
 Dwie rzeczy, których żaden grep nie złapie, więc szukaj ich osobno:
 - **Nieużywane funkcje i stany.** `tsconfig.json` nie ma `noUnusedLocals`, więc `tsc` na nie milczy. Po usunięciu konsumenta sprawdź, czy jego pomocnik ma jeszcze wołających — tak zginął mechanizm toastów w `GlobalSettings.tsx`, osierocony razem z Install Guide.
@@ -841,13 +844,13 @@ Run:
 ```bash
 grep -rn "useCLI\|cliOptions\|ACTIVE_CLI\|CLI_OPTIONS\|preferredCli\|preferred_cli\|fallbackEnabled\|fallback_enabled\|cli-preference" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
 ```
-Expected: brak wyników
+Expected: **wyłącznie** `prisma/schema.prisma` (kolumny `preferred_cli` i `fallback_enabled` — zdejmuje je Task 7). Zero trafień w kodzie. Każde inne trafienie znaczy, że zadanie nie jest skończone.
 
 Run (powtórka grepu z Task 5, teraz musi być czysty):
 ```bash
 grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
 ```
-Expected: brak wyników
+Expected: **wyłącznie** `README.md` (dokumentacja usuniętych agentów — Task 22) oraz `prisma/schema.prisma` (komentarze przy `preferred_cli` i `cliType` — Task 12). Zero trafień w kodzie aplikacji. Każde inne trafienie znaczy, że zadanie nie jest skończone.
 
 - [ ] **Step 8: Sprawdź typy, testy i build**
 
@@ -1973,11 +1976,21 @@ Expected: PASS — 9 testów
 
 - [ ] **Step 5: Popraw komentarz w schemacie**
 
-W `prisma/schema.prisma` ustaw komentarz przy `selectedModel` na:
+W `prisma/schema.prisma` popraw **dwa** komentarze, które wymieniają nieistniejące już modele i agentów.
+
+Przy `selectedModel`:
 
 ```
   selectedModel String? @map("selected_model") // claude-opus-5 | claude-sonnet-5 | claude-haiku-4-5
 ```
+
+Przy `cliType` w modelu `Session` (~linia 116) — dziś brzmi `// claude, cursor, codex, gemini, qwen`:
+
+```
+  cliType     String   @map("cli_type") // claude
+```
+
+Ten drugi nie miał wcześniej właściciela w planie i trzymałby bramkę grepową Task 6 na czerwono do końca gałęzi.
 
 - [ ] **Step 6: Sprawdź typy, testy i build**
 
