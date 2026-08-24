@@ -24,7 +24,9 @@
 - Integracja GitHub zostaje nietknięta (`lib/services/{github,git,tokens}.ts`, `components/modals/GitHubRepoModal.tsx`, model `ServiceToken`).
 - Każde zadanie kończy się commitem. Wiadomości commitów po angielsku, tryb rozkazujący.
 
-**Grepy weryfikacyjne wykluczają, nigdy nie wyliczają.** Nie podawaj ani listy katalogów, ani listy rozszerzeń — wyłącznie wykluczenia: `--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .`
+**Grepy weryfikacyjne wykluczają, nigdy nie wyliczają.** Nie podawaj ani listy katalogów, ani listy rozszerzeń — wyłącznie wykluczenia: `-I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .`
+
+`-I` pomija pliki binarne. Bez niego lokalna baza `data/cc.db` trafia w każdy wzorzec zawierający nazwę kolumny i bramka jest nieprzechodnia w każdym drzewie, w którym aplikacja choć raz wstała. **Nie zastępuj tego `--exclude-dir=data`** — to byłaby regresja: `data/global-settings.json` musi zostać w zasięgu, bo właśnie tam raz znaleziono utrwalone ustawienia usuniętych agentów.
 
 Powód jest empiryczny i kosztował już cztery przeoczenia w tym runie, wszystkie tej samej klasy: wzorzec był poprawny, a dziurą było **wskazanie miejsca**. Handler WebSocket leżał w `pages/`, którego lista katalogów nie obejmowała. Domyślne ustawienia z usuniętymi agentami leżały w `contexts/`, którego też nie. Pierwsza próba naprawy zamieniła listę katalogów na listę rozszerzeń — i natychmiast przepuściła `.md`, `.prisma`, `.yml`, `Dockerfile*` oraz `data/global-settings.json`, czyli dokładnie ten artefakt, o który chodziło w poprzednim znalezisku.
 
@@ -504,7 +506,7 @@ npm uninstall ws @types/ws
 
 Run:
 ```bash
-grep -rnE "useWebSocket|websocketManager|websocket-manager|WEBSOCKET_CONFIG|NEXT_PUBLIC_WS_BASE|ensureHeartbeat|isConnecting|enableSseFallback|recoverMissingMessages|connectToProjectWebSocket|new WebSocket|/api/ws|from 'ws'" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json . 2>/dev/null
+grep -rnE "useWebSocket|websocketManager|websocket-manager|WEBSOCKET_CONFIG|NEXT_PUBLIC_WS_BASE|ensureHeartbeat|isConnecting|enableSseFallback|recoverMissingMessages|connectToProjectWebSocket|new WebSocket|/api/ws|from 'ws'" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json . 2>/dev/null
 ```
 Expected: brak wyników (katalog `pages` już nie istnieje, dlatego `2>/dev/null`).
 
@@ -604,7 +606,7 @@ W `lib/services/service-integration.ts` usuń gałęzie i mapy dotyczące `verce
 
 Run (grep zawężony do warstwy integracji):
 ```bash
-grep -rniE "(from|import).*(vercel|supabase)|VercelProjectModal|SupabaseModal|services/vercel|services/supabase" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rniE "(from|import).*(vercel|supabase)|VercelProjectModal|SupabaseModal|services/vercel|services/supabase" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
 ```
 Expected: brak wyników. Osobno usuń link `vercel.com/templates` z treści strony szablonu w `lib/utils/scaffold.ts` — Task 16 przenosi ten plik i zakłada, że linku już nie ma.
 
@@ -736,7 +738,7 @@ W `app/api/chat/[project_id]/act/route.ts`:
 
 Run:
 ```bash
-grep -rn "codexModels\|cursorModels\|qwenModels\|glmModels\|cli/codex\|cli/cursor\|cli/qwen\|cli/glm" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "codexModels\|cursorModels\|qwenModels\|glmModels\|cli/codex\|cli/cursor\|cli/qwen\|cli/glm" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
 ```
 Expected: brak wyników. Nazwy agentów jako **wartości** (`'codex'` w `CLI_OPTIONS`, badge'e w UI) zostają do Task 6 — nie goń ich tutaj.
 
@@ -842,13 +844,13 @@ Bez tego kroku `type-check` w kroku 7 padnie na zerwanym imporcie. Task 15 przep
 
 Run:
 ```bash
-grep -rn "useCLI\|cliOptions\|ACTIVE_CLI\|CLI_OPTIONS\|preferredCli\|preferred_cli\|fallbackEnabled\|fallback_enabled\|cli-preference" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "useCLI\|cliOptions\|ACTIVE_CLI\|CLI_OPTIONS\|preferredCli\|preferred_cli\|fallbackEnabled\|fallback_enabled\|cli-preference" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
 ```
 Expected: **wyłącznie** `prisma/schema.prisma` (kolumny `preferred_cli` i `fallback_enabled` — zdejmuje je Task 7). Zero trafień w kodzie. Każde inne trafienie znaczy, że zadanie nie jest skończone.
 
 Run (powtórka grepu z Task 5, teraz musi być czysty):
 ```bash
-grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
 ```
 Expected: **wyłącznie** `README.md` (dokumentacja usuniętych agentów — Task 22) oraz `prisma/schema.prisma` (komentarze przy `preferred_cli` i `cliType` — Task 12). Zero trafień w kodzie aplikacji. Każde inne trafienie znaczy, że zadanie nie jest skończone.
 
@@ -1974,7 +1976,16 @@ export const CLAUDE_DEFAULT_MODEL: ClaudeModelId = 'claude-sonnet-5';
 Run: `npx vitest run tests/constants/claude-models.test.ts`
 Expected: PASS — 9 testów
 
-- [ ] **Step 5: Popraw komentarz w schemacie**
+- [ ] **Step 5: Odśwież fixture testu ustawień**
+
+`tests/settings/global-settings.test.ts` (powstał w Task 6) używa w fixture'ze `claude-sonnet-5` jako modelu zapisanego na dysku. Po Twojej zmianie ta wartość zrówna się z `CLAUDE_DEFAULT_MODEL`, więc asercja „ustawienia z pliku zostały zachowane" przejdzie także wtedy, gdy plik zostanie całkowicie zignorowany — test po cichu stanie się połowicznie tautologiczny.
+
+Podmień w fixture'ze i w asercji `claude-sonnet-5` na `claude-haiku-4-5` — id różne od domyślnego, więc test dalej rozróżnia „wczytano z pliku" od „użyto domyślnych".
+
+Run: `npx vitest run tests/settings/global-settings.test.ts`
+Expected: PASS. Sprawdź też, że po tymczasowej zamianie wartości na `CLAUDE_DEFAULT_MODEL` test **failuje** — inaczej nie rozróżnia tych dwóch przypadków.
+
+- [ ] **Step 6: Popraw komentarz w schemacie**
 
 W `prisma/schema.prisma` popraw **dwa** komentarze, które wymieniają nieistniejące już modele i agentów.
 
@@ -1992,12 +2003,12 @@ Przy `cliType` w modelu `Session` (~linia 116) — dziś brzmi `// claude, curso
 
 Ten drugi nie miał wcześniej właściciela w planie i trzymałby bramkę grepową Task 6 na czerwono do końca gałęzi.
 
-- [ ] **Step 6: Sprawdź typy, testy i build**
+- [ ] **Step 7: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
 Expected: zero błędów, testy zielone, build przechodzi
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add lib/constants/claudeModels.ts tests/constants/claude-models.test.ts prisma/schema.prisma
@@ -3911,7 +3922,7 @@ Zachowaj wyliczenia `resolvedModel`, `modelLabel` i `aliasNote` — są używane
 
 Run:
 ```bash
-grep -rn "📸\|🖼️\|🔄 \[HandlerSetup\]" --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "📸\|🖼️\|🔄 \[HandlerSetup\]" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
 ```
 Expected: brak wyników
 
