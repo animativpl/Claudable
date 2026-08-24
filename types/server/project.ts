@@ -11,7 +11,6 @@ export interface ServerProject extends BaseProject {
   repoPath?: string | null;
   templateType?: TemplateType;
   activeClaudeSessionId?: string | null;
-  activeCursorSessionId?: string | null;
   settings?: string; // JSON string
   createdAt: Date;
   updatedAt: Date;
@@ -41,6 +40,5 @@ export interface UpdateProjectInput {
   selectedModel?: string;
   settings?: string;
   activeClaudeSessionId?: string;
-  activeCursorSessionId?: string;
   repoPath?: string | null;
 }

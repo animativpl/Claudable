@@ -33,12 +33,9 @@ model Project {
 
   // AI Session Management
   activeClaudeSessionId String? @map("active_claude_session_id")
-  activeCursorSessionId String? @map("active_cursor_session_id")
 
   // CLI Preferences
-  preferredCli  String? @map("preferred_cli") // claude, cursor, codex, gemini, qwen
-  selectedModel String? @map("selected_model") // claude model id (claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5-20251001)
-  fallbackEnabled Boolean @default(false) @map("fallback_enabled")
+  selectedModel String? @map("selected_model") // znormalizowane id modelu Claude
 
   // Settings (JSON)
   settings    String? // JSON string for additional settings

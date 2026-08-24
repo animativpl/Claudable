@@ -20,7 +20,6 @@ export interface Project {
   initialPrompt?: string;
   templateType?: TemplateType;
   activeClaudeSessionId?: string;
-  activeCursorSessionId?: string;
   selectedModel?: string;
   settings?: string; // JSON string
   createdAt: Date;
@@ -48,7 +47,6 @@ export interface UpdateProjectInput {
   selectedModel?: string;
   settings?: string;
   activeClaudeSessionId?: string;
-  activeCursorSessionId?: string;
   repoPath?: string | null;
 }
 
