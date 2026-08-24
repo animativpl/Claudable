@@ -3680,6 +3680,8 @@ Granica jest wpisana w **czterech** miejscach i wszystkie muszą się zgadzać:
 
 Zmień też lokalnie w `.env` i `.env.local` (bez commitowania — patrz Files).
 
+**Uwaga na kolejność ładowania.** `scripts/run-web.js:18-19` ładuje `.env`, potem `.env.local`, **bez** `override: true` — a `dotenv` domyślnie nie nadpisuje już ustawionego klucza. Oba pliki dzielą dziś pięć kluczy (`PORT`, `WEB_PORT`, `NEXT_PUBLIC_APP_URL`, `PREVIEW_PORT_START`, `PREVIEW_PORT_END`), więc `.env.local` — plik konwencjonalnie służący do nadpisywania — po cichu nie nadpisuje niczego. To defekt preegzystujący, nie wprowadzony tym runem, i **nie jest Twoim zadaniem go naprawiać**. Ale gdy zmieniasz zakres portów, zmień go w **obu** plikach, bo w przeciwnym razie wartość, która wygrywa, nie jest tą, którą edytowałeś. Zgłoś ten defekt w raporcie, żeby trafił do review całej gałęzi.
+
 - [ ] **Step 2: Napisz test wyczerpania zakresu portów**
 
 Decyzja 14 obiecuje pokrycie alokacji portu, a ryzyko 3 wymaga czytelnego błędu przy wyczerpaniu slotów. Przy 32 miejscach zamiast 900 to przestaje być teoretyczne.
