@@ -753,14 +753,16 @@ use them, but they no longer branch."
 - Modify: `lib/serializers/project.ts`
 - Modify: `types/backend/cli.ts`, `types/backend/project.ts`
 - Modify: `components/settings/AIAssistantSettings.tsx`, `components/settings/GlobalSettings.tsx`, `components/settings/GeneralSettings.tsx`
-- Modify: `components/modals/CreateProjectModal.tsx`
+- Delete: `components/modals/CreateProjectModal.tsx` (martwy kod — patrz niżej)
 - Modify: `components/chat/ChatInput.tsx`
 - Modify: `app/page.tsx`, `app/[project_id]/chat/page.tsx`
 - Modify: `app/api/chat/[project_id]/cli-preference/route.ts` (usunięcie trasy)
 
 **Interfaces:**
 - Consumes: `getModelDefinitionsForCli`, `normalizeModelId`, `getDefaultModelForCli` z Task 5.
-- Produces: UI zna tylko wybór modelu. `CreateProjectModal` przestaje przyjmować i wysyłać `preferredCli`; Task 18 dokłada do niego wybór template'u. Po tym zadaniu żadne miejsce w kodzie nie czyta ani nie zapisuje `preferredCli` i `fallbackEnabled` — Task 7 może bezpiecznie zdjąć kolumny.
+- Produces: UI zna tylko wybór modelu. Po tym zadaniu żadne miejsce w kodzie nie czyta ani nie zapisuje `preferredCli` i `fallbackEnabled` — Task 7 może bezpiecznie zdjąć kolumny.
+
+**`CreateProjectModal` jest martwy i zostaje usunięty, nie wyczyszczony.** Sprawdzone: plik (893 linie) jest importowany w `app/page.tsx:5`, stan `showCreate` zadeklarowany w `:44`, ale `setShowCreate` nie jest wołane ani razu i komponent nie występuje w JSX. Prawdziwa droga tworzenia projektu to pole na stronie głównej — `app/page.tsx:482` robi POST `/api/projects`, `:589` przekierowuje na czat; przejście tej drogi w przeglądarce nie dotyka modala. Czyszczenie w nim selektora CLI byłoby robotą na kodzie, którego nikt nie uruchamia, a zostawienie go bez zmian zepsułoby kompilację, bo używa zawężanych tu typów. Decyzja użytkownika: usunąć.
 
 To zadanie jest atomowe z konieczności: zawężenie unionów typów CLI, usunięcie trasy `cli-preference` i usunięcie funkcji preferencji z `project.ts` muszą wejść jednym commitem, bo każde z nich osobno zostawia drugiego bez konsumenta albo bez definicji.
 
@@ -783,7 +785,15 @@ W `components/settings/AIAssistantSettings.tsx` usuń dropdown wyboru CLI, list�
 
 - [ ] **Step 3: Usuń wybór CLI z modala tworzenia projektu**
 
-W `components/modals/CreateProjectModal.tsx` usuń: stan `selectedCLI`, `fallbackEnabled`, `enabledCLIs`, `cliStatus`, `showCLIDropdown`, cały dropdown CLI i pole `preferredCli` w ciele żądania POST. `selectedModel` inicjalizuj z `getDefaultModelForCli(null)`, a listę modeli bierz z `getModelDefinitionsForCli(null)`.
+Usuń martwy modal razem z jego śladami:
+
+```bash
+git rm components/modals/CreateProjectModal.tsx
+```
+
+W `app/page.tsx` usuń import z linii 5 oraz deklarację `const [showCreate, setShowCreate] = useState(false);` (~44). Sprawdź grepem, czy `showCreate` nie jest nigdzie czytany — nie powinien być.
+
+Modal był jedynym konsumentem części importów w `app/page.tsx` (np. `createCliStatusFallback`, typy `CLIOption`/`CLIStatus`). Usuń te, które po nim osierocieją; `tsc` z kroku 7 wskaże każdy.
 
 - [ ] **Step 4: Usuń wskaźniki CLI z czatu i listy projektów**
 
@@ -3326,7 +3336,7 @@ complete, so the placeholder cast is gone."
 - Modify: `lib/services/project.ts`
 - Modify: `app/api/projects/route.ts`
 - Modify: `lib/serializers/project.ts`
-- Modify: `components/modals/CreateProjectModal.tsx`
+- Modify: `app/page.tsx` (wybór template'u przy polu tworzenia projektu)
 - Modify: `types/backend/project.ts`, `types/shared/project.ts`
 
 **Interfaces:**
@@ -3344,14 +3354,17 @@ Dziś `templateType` jest zapisywany na sztywno jako `'nextjs'` i nigdzie nie cz
 - `app/api/projects/route.ts` — w budowanym `input` dodaj `templateType: normalizeTemplateType(body.templateType ?? body.template_type),`.
 - `lib/serializers/project.ts` — dopisz `templateType` do serializowanego kształtu, żeby UI mógł go pokazać.
 
-- [ ] **Step 2: Dodaj wybór template'u w modalu**
+- [ ] **Step 2: Dodaj wybór template'u tam, gdzie projekty faktycznie powstają**
 
-W `components/modals/CreateProjectModal.tsx`:
+**Nie w `CreateProjectModal`** — ten plik został usunięty w Task 6 jako martwy kod (importowany, nigdy nierenderowany). Jedyna działająca droga tworzenia projektu to pole na stronie głównej.
+
+W `app/page.tsx`:
+
 1. Dodaj import `import { TEMPLATE_META_LIST, DEFAULT_TEMPLATE_ID } from '@/lib/templates/meta';`
    **Importuj z `meta`, nigdy z `@/lib/templates`.** To komponent kliencki; rejestr ciągnie za sobą scaffold, ten `fs/promises`, a webpackowy fallback w `next.config.js` pokrywa tylko `fs`, `path` i `os` — build padnie na `Module not found: Can't resolve 'fs/promises'`.
 2. Dodaj stan `const [selectedTemplate, setSelectedTemplate] = useState<string>(DEFAULT_TEMPLATE_ID);`
-3. W miejscu, gdzie był dropdown CLI (usunięty w Task 6), wstaw wybór template'u: prosty rząd przycisków po jednym na `TEMPLATE_META_LIST`, z `label` jako treścią i `description` w `title`. Aktywny wyróżnij tak, jak wyróżniany był aktywny CLI — nie wprowadzaj nowego języka wizualnego.
-4. W ciele żądania POST dodaj `templateType: selectedTemplate,`.
+3. Wstaw wybór template'u w rzędzie kontrolek pod polem promptu — tam, gdzie dziś stoją selektory agenta i modelu (te pierwsze usuwa Task 6, więc miejsce się zwolni). Jeden przycisk na wpis `TEMPLATE_META_LIST`, `label` jako treść, `description` w `title`. Aktywny wyróżnij tak, jak wyróżniany był aktywny model — nie wprowadzaj nowego języka wizualnego.
+4. W ciele żądania POST przy `~482` dodaj `templateType: selectedTemplate,`.
 
 - [ ] **Step 3: Dowód z uruchomienia — projekt z Astro**
 
