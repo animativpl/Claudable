@@ -244,8 +244,11 @@ tests, and the cast is gone."
     cwd: string;
     model: string;
     permissionMode: string;
+    claudeCodeVersion: string;   // Task 20: czy kontener ma tę samą wersję CLI co terminal
+    apiKeySource: string;        // Task 20: czy poświadczenia przyszły z mountu, czy z klucza
     toolCount: number;
     skills: string[];
+    slashCommands: string[];     // Task 13/14: dowód równorzędny ze skills — z dysku czy wbudowane
     agents: string[];
     mcpServers: { name: string; status: string }[];
     plugins: string[];
@@ -2059,7 +2062,10 @@ Expected w `Session initialized`:
 - `cwd` = ścieżka katalogu projektu (**nie** katalog Claudable),
 - `permissionMode` = `bypassPermissions`,
 - `skills` — liczba większa niż liczba skilli wbudowanych w CLI (czyli ładują się te z katalogu konfiguracyjnego),
+- `slashCommands` — również dłuższa lista niż przed zmianą; to dowód równorzędny ze `skills`, bo komendy również pochodzą z plików,
 - `mcpServers` — zawiera serwery z konfiguracji katalogu, jeśli są tam zdefiniowane.
+
+Punkt odniesienia z pomiaru wykonanego przy bramce designu, na tym samym koncie: bez `settingSources` sesja widziała **5 skilli i 15 slash-komend**; z `settingSources` — **24 skille i 36 komend**. Jeśli po zmianie liczby zostają przy 5 i 15, ładowanie z dysku nie działa.
 
 Wklej cały obiekt `Session initialized` do raportu zadania. Puste `skills` przy niepustym katalogu `skills/` znaczy, że montowanie/symlinki nie działają — zgłoś to jako BLOCKED, nie obchodź.
 
@@ -3674,7 +3680,7 @@ Run: otwórz `http://localhost:3000`, utwórz projekt i wyślij prompt. Potem:
 ```bash
 docker compose logs claudable | grep -A 20 "Session initialized"
 ```
-Expected w payloadzie: `cwd` = `/data/projects/<id>`, `skills` zawiera skille z zamontowanego katalogu, `agents` zawiera definicje z `agents/*.md`, a każdy wpis w `mcpServers` ma **`status: "connected"`** — nie tylko istnieje. Niepusta lista dowodzi jedynie, że pliki się wczytały; `status` dowodzi, że serwer naprawdę wstał w kontenerze.
+Expected w payloadzie: `cwd` = `/data/projects/<id>`, `claudeCodeVersion` **identyczna** jak zgłaszana przez sesję na hoście (inaczej kontener uruchamia inne CLI, niż testowałeś), `apiKeySource` wskazujący na poświadczenia z mountu, `skills` i `slashCommands` z zamontowanego katalogu, `agents` z `agents/*.md`, a każdy wpis w `mcpServers` ma **`status: "connected"`** — nie tylko istnieje. Niepusta lista dowodzi jedynie, że pliki się wczytały; `status` dowodzi, że serwer naprawdę wstał w kontenerze.
 
 Osobno udowodnij, że hooki się **wykonują**, a nie tylko wczytują — hook bez interpretera albo z odwołaniem do ścieżki hosta, której w kontenerze nie ma, milczy. Podłóż w katalogu projektu `.claude/settings.json` z hookiem `PreToolUse` na `Write`, który zwraca `permissionDecision: "deny"`, poproś agenta o utworzenie pliku i pokaż w logach, że narzędzie zostało zablokowane. Usuń hook po próbie.
 
