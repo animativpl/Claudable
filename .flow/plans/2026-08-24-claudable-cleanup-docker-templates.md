@@ -17,7 +17,8 @@
 - Node `>=20.0.0`, npm `>=10.0.0` (`package.json` → `engines`) — nie podnosić.
 - TypeScript `strict: true` (`tsconfig.json`). Żadnego nowego `as any` ani `@ts-ignore`.
 - ID modeli Claude dokładnie w formie: `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`. **Nigdy** nie doklejać sufiksu daty. Domyślny model: `claude-sonnet-5`.
-- Zakres portów preview: `3100`–`3131` (32 slotów). Ta sama wartość w `.env`, `scripts/setup-env.js` i `docker-compose.yml`.
+- Zakres portów preview: `3100`–`3131` (32 slotów). Ta sama wartość w `scripts/setup-env.js`, `lib/utils/ports.ts`, `lib/services/preview.ts`, `lib/config/constants.ts` i `docker-compose.yml`.
+- **Nigdy nie commituj `.env` ani `.env.local`** — są w `.gitignore` i zawierają `ENCRYPTION_KEY`. Zmieniaj je lokalnie, gdy zadanie tego wymaga, ale nie dodawaj do commitu.
 - Opcja katalogu roboczego agenta w SDK 0.2.68 nazywa się **`cwd`**. `workingDirectory` nie istnieje w tym SDK.
 - Chirurgia, nie remont: dotykamy wyłącznie tego, co wynika z zadania. Nie dekomponujemy `app/[project_id]/chat/page.tsx` ani `components/chat/ChatLog.tsx` — mimo rozmiaru.
 - Integracja GitHub zostaje nietknięta (`lib/services/{github,git,tokens}.ts`, `components/modals/GitHubRepoModal.tsx`, model `ServiceToken`).
