@@ -42,7 +42,15 @@ Ten dokument jest jedynym artefaktem bramki designu.
 | 16 | Izolacja agenta od globalnych ustawień hosta | **Zostaje domyślna izolacja SDK** | SDK bez `settingSources` nie ładuje ustawień z dysku ("SDK isolation mode", `sdk.d.ts:1006`). Mount `~/.claude` daje więc wyłącznie poświadczenia — globalny `CLAUDE.md` i hooki użytkownika nie wchodzą do kontekstu agenta budującego aplikację. Nie zmieniamy tego. |
 | 17 | Lista modeli Claude | **Opus 5 (`claude-opus-5`), Sonnet 5 (`claude-sonnet-5`), Haiku 4.5 (`claude-haiku-4-5`)**, domyślny **Sonnet 5**. Generacja 4.6 schodzi do `aliases`. | Polecenie użytkownika. Zejście 4.6 do aliasów, a nie do kosza, to własna konwencja tego pliku — tak już leżą `claude-opus-4-5`, `claude-sonnet-4-5` i trzy generacje wcześniej. Dzięki temu wiersze w bazie trzymające `claude-sonnet-4-6` dalej się rozwiązują, tylko na nowszy model. |
 | 18 | Kanoniczne ID Haiku | **`claude-haiku-4-5`** bez sufiksu daty; `claude-haiku-4-5-20251001` zostaje aliasem | Commit `2634077` („use correct Claude API model IDs (without date suffix)") ściął sufiksy, ale Haiku został z datą — plik jest niespójny sam ze sobą. ID modeli są kompletne w formie bez daty i sufiksów się do nich nie dokleja. Stara forma jako alias, więc istniejące wiersze w bazie nadal się rozwiązują. |
-| 19 | `maxOutputTokens` agenta | **32000** zamiast 4000 (dalej nadpisywalne przez `CLAUDE_CODE_MAX_OUTPUT_TOKENS`) | Znalezisko L. |
+| 19 | ~~`maxOutputTokens` 32000~~ | **Zastąpione decyzją 25** | — |
+| 20 | Regresja `cwd` | **Cofnąć `workingDirectory` na `cwd`** | Znalezisko N. Blokuje wszystko inne — dopóki agent pracuje w repo Claudable, żadna inna zmiana nie ma sensu. |
+| 21 | `bypassPermissions` | **Dodać `allowDangerouslySkipPermissions: true`** | Znalezisko O. SDK wymaga tej flagi, żeby tryb w ogóle zadziałał. |
+| 22 | Rzutowanie `as any` na opcjach `query()` | **Usunąć** | Znalezisko Q. To ono ukryło N i O. Bez niego kompilator znalazłby oba w sekundę, a każdy przyszły breaking change SDK zgłosi się sam. |
+| 23 | System prompt agenta | **`systemPrompt: { type: 'preset', preset: 'claude_code' }`** — bez `append`, bez nadpisania. Instrukcje platformy znikają całkowicie. | Polecenie użytkownika: domyślny prompt, nic nie dopisujemy. Pominięcie opcji dałoby pusty prompt (`sdk.mjs`: `if (Y === void 0) G = ""`), więc preset trzeba podać jawnie. Konsekwencje zdjęcia zakazów — ryzyko 6. |
+| 24 | Ustawienia, skille, MCP, CLAUDE.md | **`settingSources: ['user','project','local']`** + katalog `.claude` bindowany do kontenera przez `CLAUDABLE_CLAUDE_DIR` (domyślnie `~/.claude`) | Polecenie użytkownika. Zmienna, a nie sztywna ścieżka, bo bind daje agentowi globalny `CLAUDE.md` użytkownika — ryzyko 7. |
+| 25 | `maxOutputTokens` | **Nie przekazywać wcale** — default SDK | Polecenie użytkownika (zdjąć limit). Zastępuje decyzję 19. |
+| 26 | Guard `PROJECTS_DIR` w `executeClaude` | **Usunąć** | Polecenie użytkownika. Znosi to granicę zapisu poza katalogiem projektu — akceptowalne dopiero dlatego, że całość idzie do kontenera, w którym zamontowane są wyłącznie `/data` i katalog `.claude`. Konsolidacja resolvera ścieżek (znalezisko F) zostaje, bo dotyczy poprawnych ścieżek, nie ograniczeń. |
+| 27 | Payload `system`/`init` z SDK | **Logować i publikować** (`cwd`, `tools`, `skills`, `agents`, `mcp_servers`, `plugins`, `permissionMode`, `model`) | Znalezisko R. To jedyny sposób udowodnienia decyzji 20-24 empirycznie, a nie z typów: SDK sam raportuje, w jakim katalogu siedzi i co widzi. Dowód dla reguły „nic nie jest zrobione bez uruchomienia". |
 
 ## 3. Rozważane podejścia — kształt template'ów
 
@@ -169,6 +177,11 @@ Projekty bez `templateType` (istniejące wiersze) czytają się jako `nextjs`.
 | K | Niska | Preview binduje domyślny interfejs — przy publikowanych portach Dockera trzeba `-H 0.0.0.0` (Next) / `--host` (Astro) | wchodzi do `devCommand` template'u |
 | L | Średnia | `maxOutputTokens` twardo 4000, gdy nie ma zmiennej środowiskowej — dla agenta zapisującego całe pliki to ciasne: odpowiedź urywa się w środku zapisu. Modele z decyzji 17 unoszą 128K. | `lib/services/cli/claude.ts:585` |
 | M | Niska | Komentarz przy `selectedModel` w schemacie wymienia nieistniejące już ID modeli; README podaje „Context: Native 200k tokens" dla Claude Code, choć Opus 5 i Sonnet 5 mają 1M | `prisma/schema.prisma:40`, `README.md` |
+| N | **Krytyczna** | `workingDirectory` nie istnieje w SDK 0.2.68 — zero wystąpień w `sdk.d.ts`, `sdk.mjs` i `cli.js`; opcja nazywa się `cwd` i domyślnie przyjmuje `process.cwd()`. Commit `3c00d5b` zamienił działającą opcję na nieistniejącą w obu adapterach, powołując się na breaking change, którego nie ma. Nieznany klucz jest ignorowany, więc **agent pracuje w katalogu serwera Claudable, nie w katalogu projektu** — dokładnie wbrew komentarzowi w tej samej linii. Walidacja ścieżki kilkadziesiąt linii wyżej liczy poprawną ścieżkę i nigdy jej nie używa. | `lib/services/cli/claude.ts:721`, `lib/services/cli/glm.ts` |
+| O | Wysoka | `permissionMode: 'bypassPermissions'` bez wymaganego `allowDangerouslySkipPermissions: true` — SDK dokumentuje tę flagę jako obowiązkową dla tego trybu | `lib/services/cli/claude.ts:725` |
+| P | Wysoka | `systemPrompt` podany jako surowy string **zastępuje** prompt presetu Claude Code, a nie rozszerza go. Agent traci cały harness i zostaje z jedenastoma linijkami o Next.js. | `lib/services/cli/claude.ts:727` |
+| Q | Średnia | Cały obiekt opcji `query()` rzutowany `as any` — najważniejsze wywołanie w aplikacji nie ma kontroli typów. To ono przepuściło N i O. | `lib/services/cli/claude.ts:766` |
+| R | Niska | Wiadomość `system`/`init` z SDK niesie `cwd`, `tools`, `skills`, `agents`, `mcp_servers`, `plugins`, `permissionMode`; handler bierze z niej tylko `session_id` i wyrzuca resztę. Gdyby to było logowane, znalezisko N byłoby widoczne od pierwszego uruchomienia. | `lib/services/cli/claude.ts:953` |
 
 **Świadomie zostawione poza zakresem** (zgłoszone, nie ruszane):
 - `ServiceToken.token` trzymany plain-text — świadomy trade-off „narzędzie
@@ -204,4 +217,22 @@ dostępne z hosta → restart kontenera → projekty na miejscu.
 4. **Migracja schematu na SQLite** przebudowuje tabele. Backup przed `db push`
    jest częścią zadania, nie sugestią.
 5. **Usuwanie deployu z `page.tsx`** dotyka pliku, w którym równolegle naprawiamy
+6. **Zdjęcie zakazów z promptu a PreviewManager (decyzja 23).** Agent bez
+   instrukcji „nie odpalaj dev-servera" może wystartować własny `next dev` na
+   porcie spoza puli 3100-3131 — w kontenerze taki port nie jest publikowany,
+   więc iframe nie pokaże nic, a proces zostanie po sesji. Świadoma konsekwencja
+   polecenia użytkownika; jeśli wyjdzie w praktyce, najtańsza korekta to
+   `disallowedTools` na `Bash` dla komend dev-servera, nie powrót zakazów do promptu.
+7. **Globalny `CLAUDE.md` użytkownika wchodzi do kontekstu agenta (decyzja 24).**
+   Ten plik nakazuje pipeline `development-workflow`, `flow-state`, worktree i cbm
+   MCP — instrukcje bez sensu dla agenta budującego apkę todo, który zacznie ich
+   szukać. Dlatego ścieżka bindu jest zmienną `CLAUDABLE_CLAUDE_DIR`: przestawienie
+   jej na dedykowany katalog z własnym `CLAUDE.md` to jedna linia w compose, bez
+   zmian w kodzie.
+8. **Symlinki w `~/.claude` przestają być nieszkodliwe (decyzja 24).** Przy
+   `settingSources` włączonym, `settings.json` i `.mcp.json` — symlinki do
+   `/home/m/dotfiles/.claude/` — muszą się rozwiązać w kontenerze, inaczej
+   ustawienia i MCP po prostu nie wejdą. Compose montuje katalog docelowy pod tą
+   samą ścieżką absolutną (zmienna, domyślnie pusta). Weryfikacja: payload z
+   decyzji 27 pokazuje `mcp_servers` i `skills` — jeśli są puste, symlinki wiszą.
    flicker — dlatego usunięcia idą przed naprawą UI (decyzja 15), nie odwrotnie.
