@@ -79,4 +79,9 @@ describe('resolveDbPath', () => {
     delete process.env.DATABASE_URL;
     expect(resolveDbPath()).toBe(path.join(repoRoot, 'data', 'cc.db'));
   });
+
+  it('bierze ścieżkę z process.env.DATABASE_URL, gdy wołane bez argumentu (mechanizm kontenera)', () => {
+    process.env.DATABASE_URL = 'file:/data/cc.db';
+    expect(resolveDbPath()).toBe('/data/cc.db');
+  });
 });

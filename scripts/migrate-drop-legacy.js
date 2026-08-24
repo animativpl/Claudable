@@ -6,6 +6,18 @@
  */
 const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
+
+// Zgodne z scripts/run-web.js:18-19 — Prisma i run-web.js czytają
+// DATABASE_URL z .env/.env.local, nie z powłoki. Bez tego resolveDbPath()
+// widziałby inną wartość niż faktyczny runtime Prismy.
+// `override: true` na drugim wywołaniu jest konieczne: dotenv domyślnie NIE
+// nadpisuje klucza już ustawionego przez poprzednie `.config()` w tym samym
+// procesie (`node_modules/dotenv/lib/main.js` — `populate`), więc bez tej
+// flagi .env.local nigdy by nie wygrał z .env dla tego samego klucza —
+// sprzecznie z zamierzonym „drugi nadpisuje pierwszy".
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '.env.local'), override: true });
 
 const LEGACY_PROVIDERS = ['vercel', 'supabase'];
 
@@ -40,7 +52,11 @@ function backupDatabase(dbPath) {
 function runBackupCli() {
   const dbPath = resolveDbPath();
   if (!fs.existsSync(dbPath)) {
-    console.error(`❌ No database found at ${dbPath} — nothing to back up.`);
+    console.error(
+      `❌ No database found at ${dbPath} — nothing to back up. If this is a fresh install, ` +
+        `that's expected: the database is created on first \`npm run dev\` (or \`npm run setup\`), ` +
+        `and a fresh install has nothing to migrate yet.`
+    );
     process.exit(1);
     return;
   }
@@ -102,6 +118,5 @@ module.exports = {
   purgeLegacyProviders,
   main,
   resolveDbPath,
-  backupDatabase,
   runBackupCli,
 };
