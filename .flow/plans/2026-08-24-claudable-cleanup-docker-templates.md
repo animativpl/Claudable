@@ -511,12 +511,13 @@ Expected: zero błędów, testy zielone, build przechodzi. W wyjściu builda **n
 Run: `npm run build && npm start`, otwórz projekt, konsola i zakładka Network.
 
 Expected:
-- **Zero** linii `[Transport] WebSocket` i `[WebSocket] Reconnecting` w konsoli.
-- `🔄 [Transport] SSE connection established` **raz**, bez powtórek.
-- Zero odpowiedzi `503` na `/api/chat/<id>/stream`.
-- Liczba pobrań `messages?limit=200&offset=0` przy wejściu na stronę: **wyraźnie poniżej 15** — tyle zmierzono przed zmianą. Kaskadę do końca domyka Task 8, więc tutaj nie oczekuj jeszcze dwóch; oczekuj, że silnik transportowy przestał ją napędzać.
+- **Zero** linii `[Transport] WebSocket` i `[WebSocket] Reconnecting` w konsoli. To jest dowód właściwy dla tego zadania.
+- Liczba pobrań `messages?limit=200&offset=0` przy wejściu na stronę: **wyraźnie poniżej 15** — tyle zmierzono przed zmianą.
+- `🔄 [Transport] SSE connection established` będzie się jeszcze powtarzać. Nie jest to regresja tego zadania: efekt SSE remountuje się, bo `handleRealtimeEnvelope` siedzi w jego deps i jest niestabilne przez `handleRealtimeStatus` → `onSessionStatusChange`, które rodzic podaje jako inline arrow. Domyka to Task 8 Step 1.
 
-Zapisz w raporcie zadania liczbę pobrań przed (15+) i po. To jest jedyny dowód, że usunięcie WS pomogło, a nie tylko usunęło kod.
+**Nie mierz odpowiedzi `503` w logu sieciowym przeglądarki.** Zbadane: serwer odpowiada `200` na **każde** żądanie strumienia (log dev-servera: `GET /api/chat/<id>/stream 200` plus `[SSE] Stream cancelled`), a `curl` — 10 równoległych i 30 szybkich otwórz-porzuć — nigdy nie dostaje 503. W kodzie aplikacji nie ma źródła 503: brak `middleware.ts`, trasa nie ma ścieżki błędu, `StreamManager.addStream` nie ma limitu. `503` jest **artefaktem instrumentacji** — tak czytnik sieci raportuje żądanie strumieniowe przerwane przez klienta przed zakończeniem odpowiedzi. Kryterium „zero 503" mierzyłoby narzędzie, nie kod.
+
+**Miarą zastępczą jest liczba linii `[SSE] Stream cancelled` w logu serwera** na jedno wejście na stronę — jednoznaczna, bo pochodzi z naszego kodu (`app/api/chat/[project_id]/stream/route.ts`). Zmierzone po usunięciu WS: **13**. Zapisz swoją liczbę w raporcie; Task 8 ma ją zbić do zera lub jedynki.
 
 - [ ] **Step 9: Commit**
 
@@ -1165,6 +1166,7 @@ Następnie w przeglądarce otwórz projekt, zakładkę Network, filtr `messages`
 
 Expected — progi zachowaniowe, nie równości (punkt startowy: 15+ pobrań przed zmianami):
 - **Skeleton nie wraca ani razu** po pierwszym wczytaniu. To jest właściwy objaw: `setIsLoading(true)` nie może się już odpalić w trakcie runu.
+- **Liczba linii `[SSE] Stream cancelled` w logu serwera na jedno wejście: 0 albo 1.** Po Task 3 było ich 13 — każda to remount efektu SSE zrywający strumień. To najostrzejsza miara tej naprawy, bo pochodzi z naszego kodu, a nie z instrumentacji przeglądarki. Nie mierz odpowiedzi `503` w logu sieciowym: serwer zawsze odpowiada 200, a 503 jest artefaktem raportowania przerwanego strumienia (zbadane przy Task 3).
 - **≤ 2 żądania `messages`** na wejście na stronę, plus **najwyżej jedno** po zakończeniu runu (to zamierzone — krok 5 ustawia `setNeedsHistoryRefresh(true)`, żeby dociągnąć końcówkę bez migotania).
 - **Zero żądań `messages` w trakcie** pracy agenta — wiadomości dochodzą przez SSE.
 
