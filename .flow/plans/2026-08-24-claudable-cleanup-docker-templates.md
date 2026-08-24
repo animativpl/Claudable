@@ -1995,7 +1995,7 @@ by mistake, and the old form stays as an alias."
 - Modify: `lib/services/cli/claude-options.ts`
 - Modify: `tests/cli/claude-options.test.ts`
 - Create: `tests/cli/claude-config-dir.test.ts`
-- Modify: `lib/services/cli/claude.ts` (usunięcie guardu ścieżki i `maxOutputTokens`)
+- Modify: `lib/services/cli/claude.ts` (usunięcie guardu ścieżki)
 
 **Interfaces:**
 - Consumes: `buildClaudeQueryOptions` (Task 1).
@@ -2107,9 +2107,65 @@ export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options
 Run: `npx vitest run tests/cli/`
 Expected: PASS — 6 testów w `claude-options`, 3 w `claude-config-dir`, 2 w `init-payload`
 
-- [ ] **Step 7: Zdejmij guard ścieżki z `claude.ts`**
+- [ ] **Step 7: Odetnij zmienne sesji Claude Code od procesu agenta**
 
-`maxOutputTokens` wypadło już w Task 1 razem z rzutowaniem `as any` — i, jak się okazało, nigdy nie działało (nie ma tej właściwości w typie `Options` SDK), więc decyzja 25 nie zmienia żadnego zachowania. Tutaj zostaje guard.
+**Zmierzone na uruchomionej aplikacji.** Claudable odpalony z terminala, w którym działa Claude Code, dziedziczy zmienną `CLAUDECODE` — i agent nie startuje wcale:
+
+```
+[ClaudeSDK][stderr] Error: Claude Code cannot be launched inside another Claude Code session.
+Nested sessions share runtime resources and will crash all active sessions.
+To bypass this check, unset the CLAUDECODE environment variable.
+[API] Failed to execute AI: Error: Claude Code process exited with code 1
+```
+
+Claudable **nie jest** zagnieżdżoną sesją Claude Code — to aplikacja osadzająca SDK, więc ta blokada jej nie dotyczy, a dziedziczenie zmiennej jest przypadkiem. W kontenerze problem nie wystąpi (czyste środowisko), ale lokalnie zabija agenta bez śladu w UI: użytkownik widzi tylko nieudane zgłoszenie.
+
+Dodaj do `buildClaudeQueryOptions` czyszczenie tych zmiennych w środowisku procesu potomnego:
+
+```ts
+const CLAUDE_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENTRYPOINT'] as const;
+
+/**
+ * Claudable osadza SDK, więc nie jest zagnieżdżoną sesją Claude Code — ale
+ * odpalony z terminala, w którym Claude Code działa, dziedziczy jego zmienne
+ * i SDK odmawia startu. Odcinamy je dla procesu potomnego.
+ */
+function childEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const key of CLAUDE_SESSION_VARS) {
+    delete env[key];
+  }
+  return env;
+}
+```
+
+i zwróć `env: childEnv()` w obiekcie opcji.
+
+Test do dopisania w `tests/cli/claude-options.test.ts`:
+
+```ts
+  it('odcina zmienne sesji Claude Code od procesu potomnego', () => {
+    process.env.CLAUDECODE = '1';
+    process.env.CLAUDE_CODE_SSE_PORT = '12345';
+    try {
+      const options = buildClaudeQueryOptions(input);
+      expect(options.env).toBeDefined();
+      expect(options.env).not.toHaveProperty('CLAUDECODE');
+      expect(options.env).not.toHaveProperty('CLAUDE_CODE_SSE_PORT');
+      // reszta środowiska musi przejść nietknięta
+      expect(options.env?.PATH).toBe(process.env.PATH);
+    } finally {
+      delete process.env.CLAUDECODE;
+      delete process.env.CLAUDE_CODE_SSE_PORT;
+    }
+  });
+```
+
+Uruchom `npx vitest run tests/cli/claude-options.test.ts` — najpierw musi failować na `options.env` równym `undefined`.
+
+- [ ] **Step 8: Zdejmij guard ścieżki z `claude.ts`**
+
+`maxOutputTokens` wypadło już w Task 1 razem z rzutowaniem `as any` — i, jak się okazało, nigdy nie działało (nie ma tej właściwości w typie `Options` SDK), więc decyzja 25 nie zmienia żadnego zachowania. Tutaj zostaje guard ścieżki.
 
 W `lib/services/cli/claude.ts`:
 1. Usuń cały blok walidacji ścieżki — od `// Security: Verify project path is within allowed directory` do `throw new Error(errorMessage);` włącznie z obliczaniem `allowedBasePath`, `relativeToBase` i `isWithinBase` (~684-700). Zostaje samo wyliczenie `absoluteProjectPath` oraz tworzenie katalogu, jeśli nie istnieje.
@@ -2120,7 +2176,7 @@ W `lib/services/cli/claude.ts`:
    const absoluteProjectPath = resolveProjectRoot(projectId, projectPath);
    ```
 
-- [ ] **Step 8: Dowód z uruchomienia — payload `init` potwierdza parytet**
+- [ ] **Step 9: Dowód z uruchomienia — payload `init` potwierdza parytet**
 
 Run: `npm run dev`, wyślij dowolny prompt do agenta i odczytaj log serwera z Task 2.
 Expected w `Session initialized`:
@@ -2134,12 +2190,12 @@ Punkt odniesienia z pomiaru wykonanego przy bramce designu, na tym samym koncie:
 
 Wklej cały obiekt `Session initialized` do raportu zadania. Puste `skills` przy niepustym katalogu `skills/` znaczy, że montowanie/symlinki nie działają — zgłoś to jako BLOCKED, nie obchodź.
 
-- [ ] **Step 9: Sprawdź typy, testy i build**
+- [ ] **Step 10: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
 Expected: zero błędów, testy zielone, build przechodzi
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add lib/services/cli/claude-config-dir.ts tests/cli/claude-config-dir.test.ts lib/services/cli/claude-options.ts tests/cli/claude-options.test.ts lib/services/cli/claude.ts
