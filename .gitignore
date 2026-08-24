@@ -76,3 +76,6 @@ dist/
 release/
 # flow run state (per-run, not shared)
 .flow/run/
+
+# git worktrees created by the harness
+.claude/worktrees/
