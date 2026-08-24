@@ -2004,6 +2004,14 @@ Przy `cliType` w modelu `Session` (~linia 116) — dziś brzmi `// claude, curso
 
 Ten drugi nie miał wcześniej właściciela w planie i trzymałby bramkę grepową Task 6 na czerwono do końca gałęzi.
 
+**Popraw też pozostałe komentarze, które po fazie 1 opisują stan nieistniejący.** Żadne inne zadanie ich nie obejmuje, a ten plik i tak otwierasz:
+- `~141` i `~266` — `provider String // github, vercel, supabase` (dwa modele). Zostaje `// github`.
+- `~145-147` — dokumentacja kształtu `serviceData` dla Vercela i Supabase. Zostaje wyłącznie linia GitHuba.
+- `~86` — `cliSource ... // claude, cursor, etc.`. Zostaje `// claude`.
+- `~38` — komentarz przy `selectedModel` został w Task 7 napisany **po polsku**, gdy cała reszta pliku jest po angielsku. Twoja wersja wraca do angielskiego.
+
+Po tej zmianie `grep -In "vercel\|supabase\|cursor\|codex\|qwen\|glm"` na `prisma/schema.prisma` musi dawać zero trafień.
+
 - [ ] **Step 7: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
@@ -3968,7 +3976,21 @@ W `README.md` usuń sekcje „Supported AI Coding Agents" dotyczące Codex CLI, 
 
 Usuń Vercela i Supabase z „Features", „Technology Stack" i „Integration Guide". Zostaw GitHuba. Usuń zdanie o deploju jednym kliknięciem i o darmowym PostgreSQL.
 
-- [ ] **Step 4: Napraw obiecane skrypty npm**
+- [ ] **Step 4: Opisz aktualizację istniejącej instalacji**
+
+Ta gałąź zdejmuje trzy kolumny z modelu `Project`. Ktokolwiek aktualizuje istniejącą instalację, wejdzie przy `npm run dev` w `prisma db push` (`scripts/run-web.js:63`, bez flagi utraty danych) i trafi na potwierdzenie: prompt przy terminalu interaktywnym, błąd bez niego. To zachowanie jest **celowo** bezpieczne — nic nie kasuje po cichu — ale w gałęzi nie ma nigdzie zapisane, co wtedy zrobić.
+
+Dopisz do README, w sekcji Troubleshooting, akapit z procedurą w tej kolejności:
+
+```bash
+npm run db:backup          # kopia do data/backups/, wychodzi niezerowo gdy nie ma czego kopiować
+npm run db:migrate-legacy  # usuwa wiersze providerów, których produkt już nie obsługuje
+npx prisma db push --accept-data-loss
+```
+
+Napisz wprost, dlaczego `--accept-data-loss` jest tu bezpieczne (zdejmowane kolumny nie są już przez nic czytane, a backup zrobił krok pierwszy) i dlaczego **nie** ma go w automatycznej ścieżce startu (tam każdy przyszły drift schematu kasowałby dane bez pytania).
+
+- [ ] **Step 5: Napraw obiecane skrypty npm**
 
 Sekcja „Additional Commands" wymienia `npm run db:backup`, `db:reset` i `clean`. `db:backup` istnieje od Task 7 — zostaw z poprawnym opisem. `db:reset` zamień na istniejące `npm run prisma:reset`. `clean` albo usuń z README, albo dodaj do `package.json`:
 
@@ -3977,7 +3999,7 @@ Sekcja „Additional Commands" wymienia `npm run db:backup`, `db:reset` i `clean
 ```
 Wybierz dodanie skryptu, jeśli zostawiasz wpis w README — dokumentacja i `package.json` muszą się zgadzać.
 
-- [ ] **Step 5: Dopisz sekcję Dockera**
+- [ ] **Step 6: Dopisz sekcję Dockera**
 
 Po „Quick Start" dodaj:
 
@@ -4011,11 +4033,11 @@ tą samą ścieżką absolutną — inaczej symlinki zawisną i ustawienia po ci
 nie wejdą.
 ```
 
-- [ ] **Step 6: Dopisz sekcję o template'ach**
+- [ ] **Step 7: Dopisz sekcję o template'ach**
 
 W „Usage" dodaj akapit: nowy projekt wybiera template (Next.js albo Astro); template scaffolduje minimalny projekt i zapisuje `CLAUDE.md` z konwencjami frameworka, które agent czyta z katalogu projektu.
 
-- [ ] **Step 7: Zweryfikuj każdy skrypt wymieniony w README**
+- [ ] **Step 8: Zweryfikuj każdy skrypt wymieniony w README**
 
 Run:
 ```bash
@@ -4029,12 +4051,12 @@ console.log(missing.length ? 'BRAKUJE: ' + missing.join(', ') : 'wszystkie skryp
 ```
 Expected: `wszystkie skrypty z README istnieją`. Wklej wynik do raportu.
 
-- [ ] **Step 8: Ostatnia weryfikacja całości**
+- [ ] **Step 9: Ostatnia weryfikacja całości**
 
 Run: `npm run type-check && npm test && npm run lint && npm run build`
 Expected: wszystko zielone. To jest brama wyjściowa planu.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add README.md package.json
