@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js 15.5, React 19, TypeScript 5.7, Prisma 6 + SQLite, `@anthropic-ai/claude-agent-sdk` 0.2.68, Vitest (nowy), Docker + Compose.
 
-**Spec:** projekt nie ma living speca (`spec.md`). Bootstrap speca to osobna robota (skill `writing-specs`) i nie jest częścią tego runu — nie ma więc zadania synchronizującego spec. Zamiast tego Task 24 aktualizuje `README.md` i komentarze w schemacie, czyli jedyną dokumentację, jaką ten projekt ma.
+**Spec:** projekt nie ma living speca (`spec.md`). Bootstrap speca to osobna robota (skill `writing-specs`) i nie jest częścią tego runu — nie ma więc zadania synchronizującego spec. Zamiast tego Task 22 aktualizuje `README.md`, a Task 12 komentarz w schemacie, czyli jedyną dokumentację, jaką ten projekt ma.
 
 **Design record:** `.flow/specs/2026-08-24-claudable-cleanup-docker-templates-design.md` (29 decyzji, 19 znalezisk)
 
@@ -121,6 +121,11 @@ describe('buildClaudeQueryOptions', () => {
     const options = buildClaudeQueryOptions({ ...input, sessionId: 'sess-9' });
     expect(options.resume).toBe('sess-9');
   });
+
+  it('używa presetowego promptu Claude Code, bez nadpisania i bez append', () => {
+    const options = buildClaudeQueryOptions(input);
+    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' });
+  });
 });
 ```
 
@@ -155,6 +160,11 @@ export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options
     resume: input.sessionId,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
+    // Preset, nie string: string ZASTĘPUJE prompt Claude Code, a pominięcie
+    // opcji daje prompt PUSTY (`sdk.mjs`: `if (Y === void 0) G = ""`). Wchodzi
+    // już tutaj, nie w Task 13, bo między tymi zadaniami dowody z uruchomienia
+    // zbierałyby się na agencie bez żadnych instrukcji.
+    systemPrompt: { type: 'preset', preset: 'claude_code' },
   };
 }
 ```
@@ -162,7 +172,7 @@ export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options
 - [ ] **Step 6: Uruchom test i potwierdź, że przechodzi**
 
 Run: `npx vitest run tests/cli/claude-options.test.ts`
-Expected: PASS — 4 testy
+Expected: PASS — 5 testów
 
 - [ ] **Step 7: Podłącz funkcję w `claude.ts` i usuń `as any`**
 
@@ -183,7 +193,6 @@ Zastąp całe wywołanie `query({ ... } as any)` (linie ~718-766) tym:
           model: resolvedModel,
           sessionId,
         }),
-        maxOutputTokens,
         stderr: (data: string) => {
           const line = String(data).trimEnd();
           if (!line) return;
@@ -195,7 +204,9 @@ Zastąp całe wywołanie `query({ ... } as any)` (linie ~718-766) tym:
     });
 ```
 
-Uwaga: `systemPrompt` znika z tego wywołania — obsługuje je Task 13. `maxOutputTokens` zostaje na razie i wypada w Task 13. Rzutowanie `as any` musi zniknąć bez śladu.
+Uwagi:
+- `systemPrompt` i `maxOutputTokens` znikają z tego wywołania. `maxOutputTokens` **nie istnieje** w typie `Options` SDK 0.2.68 (linia 604 `sdk.d.ts` to `ModelUsage`, nie `Options`) — czyli był ignorowany dokładnie tak samo jak `workingDirectory`, a rzutowanie `as any` to ukryło. Usuń też martwe wyliczenia `configuredMaxTokens` i `maxOutputTokens` powyżej (~582-585) razem z nimi.
+- Rzutowanie `as any` musi zniknąć bez śladu. To ono przepuściło oba te błędy.
 
 - [ ] **Step 8: Sprawdź typy**
 
@@ -511,11 +522,16 @@ W `lib/services/service-integration.ts` usuń gałęzie i mapy dotyczące `verce
 
 - [ ] **Step 5: Dowiedź, że nie ma referencji**
 
-Run:
+**Trzy miejsca są jawnie NIE do ruszania** — nie dotyczą integracji, tylko projektów generowanych przez agenta, i ich usunięcie sprawiłoby, że te projekty zaczną commitować katalog `.vercel`:
+- `lib/services/git.ts:32` — `'.vercel/'` w szablonie `.gitignore`
+- `lib/services/git.ts:102` — `.vercel` w `pathsToUntrack`
+- `lib/services/file-browser.ts:17` — `'.vercel'` w liście ignorowanych katalogów
+
+Run (grep zawężony do warstwy integracji):
 ```bash
-grep -rni "vercel\|supabase" --include=*.ts --include=*.tsx app components lib hooks types
+grep -rniE "(from|import).*(vercel|supabase)|VercelProjectModal|SupabaseModal|services/vercel|services/supabase" --include=*.ts --include=*.tsx app components lib hooks types
 ```
-Expected: brak wyników. Dwa dopuszczalne wyjątki, jeśli wyjdą: link `vercel.com/templates` w treści strony szablonu w `lib/utils/scaffold.ts` (zostaje do Task 16) i słowo w komentarzu bez znaczenia funkcjonalnego — wtedy usuń komentarz i link.
+Expected: brak wyników. Osobno usuń link `vercel.com/templates` z treści strony szablonu w `lib/utils/scaffold.ts` — Task 16 przenosi ten plik i zakłada, że linku już nie ma.
 
 - [ ] **Step 6: Sprawdź typy, testy i build**
 
@@ -544,8 +560,7 @@ them."
 - Modify: `app/api/chat/[project_id]/act/route.ts` (jeden executor)
 - Modify: `app/api/settings/cli-status/route.ts` (tylko Claude — pełna przebudowa w Task 14)
 - Modify: `lib/services/settings.ts` (`DEFAULT_SETTINGS`)
-- Modify: `lib/serializers/project.ts`, `lib/services/project.ts`
-- Modify: `types/backend/cli.ts`, `types/backend/project.ts`
+- Modify: `types/cli.ts` (usunięcie importów usuwanych stałych)
 
 **Interfaces:**
 - Consumes: `buildClaudeQueryOptions` (Task 1) — bez zmian w sygnaturze.
@@ -638,22 +653,22 @@ W `app/api/chat/[project_id]/act/route.ts`:
 
 - `app/api/settings/cli-status/route.ts` — usuń `checkCodexCLI`, `checkQwenCLI`, `checkGLMCLI`, `checkCursorCLI` i importy usuniętych stałych modeli; zostaw wyłącznie gałąź Claude. Trasa zostaje na miejscu, jej semantykę zmienia Task 15.
 - `lib/services/settings.ts` — `DEFAULT_SETTINGS.cli_settings` zostaje tylko z kluczem `claude`.
-- `lib/services/project.ts` — usuń `preferredCli` z `createProject` i `updateProject` (kolumnę zdejmuje Task 7); w `getAllProjects`/`getProjectById` zamień `normalizeModelId(project.preferredCli ?? 'claude', ...)` na `normalizeModelId(null, ...)`.
-- `lib/serializers/project.ts` — usuń `preferredCli` z serializowanego kształtu.
-- `types/backend/cli.ts`, `types/backend/project.ts` — usuń union typów CLI innych niż `'claude'` i pola `preferredCli`/`fallbackEnabled`.
+- `types/cli.ts` — usuń cztery importy usuwanych stałych (`CODEX_MODEL_DEFINITIONS`, `CURSOR_MODEL_DEFINITIONS`, `QWEN_MODEL_DEFINITIONS`, `GLM_MODEL_DEFINITIONS`) i wpisy `CLI_OPTIONS`, które z nich korzystały. Sam plik znika w Task 6 — tutaj tylko odcinamy go od usuwanych modułów, żeby repozytorium kompilowało się po tym commicie.
+
+**Czego to zadanie NIE rusza, świadomie:** `preferredCli`, `fallbackEnabled`, `ProjectCliPreference`, `getProjectCliPreference`, `updateProjectCliPreference` w `lib/services/project.ts`, `preferredCli` w `app/api/projects/route.ts` i unionów w `types/backend/*`. Te funkcje woła wyłącznie trasa `cli-preference`, którą usuwa Task 6 — usunięcie ich tutaj zepsułoby kompilację tego commitu. Cała plomba preferencji CLI wypada w Task 6, atomowo.
 
 - [ ] **Step 5: Dowiedź, że nie ma referencji**
 
 Run:
 ```bash
-grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini\|cursorModels\|cli/cursor\|activeCursorSessionId" --include=*.ts --include=*.tsx app components lib hooks types scripts
+grep -rn "codexModels\|cursorModels\|qwenModels\|glmModels\|cli/codex\|cli/cursor\|cli/qwen\|cli/glm" --include=*.ts --include=*.tsx app components lib hooks types scripts
 ```
-Expected: brak wyników. Referencje w UI (`components/`, `app/page.tsx`, `app/[project_id]/chat/page.tsx`) usuwa Task 6 — jeśli wyjdą tutaj, wypisz je i przejdź dalej; grep musi być czysty **po** Task 6.
+Expected: brak wyników. Nazwy agentów jako **wartości** (`'codex'` w `CLI_OPTIONS`, badge'e w UI) zostają do Task 6 — nie goń ich tutaj.
 
-- [ ] **Step 6: Sprawdź typy i testy**
+- [ ] **Step 6: Sprawdź typy, testy i build**
 
-Run: `npm run type-check`
-Expected: błędy wyłącznie w plikach UI, które obsługuje Task 6. Wypisz je do raportu zadania. `npm test` musi być zielony.
+Run: `npm run type-check && npm test && npm run build`
+Expected: **zero błędów** i zielony build. To zadanie musi się kompilować samo — jeśli `tsc` zgłasza cokolwiek, to znaczy, że usunąłeś coś, co ma jeszcze żywego konsumenta, i trzeba to przenieść do Task 6, nie zostawić zepsute.
 
 - [ ] **Step 7: Commit**
 
@@ -672,6 +687,11 @@ use them, but they no longer branch."
 
 **Files:**
 - Delete: `hooks/useCLI.ts`, `lib/utils/cliOptions.ts`, `types/cli.ts`, `types/shared/cli.ts`
+- Delete: `app/api/chat/[project_id]/cli-preference/`
+- Modify: `lib/services/project.ts` (usunięcie `ProjectCliPreference`, `getProjectCliPreference`, `updateProjectCliPreference` i `preferredCli`)
+- Modify: `app/api/projects/route.ts` (usunięcie `preferredCli`)
+- Modify: `lib/serializers/project.ts`
+- Modify: `types/backend/cli.ts`, `types/backend/project.ts`
 - Modify: `components/settings/AIAssistantSettings.tsx`, `components/settings/GlobalSettings.tsx`, `components/settings/GeneralSettings.tsx`
 - Modify: `components/modals/CreateProjectModal.tsx`
 - Modify: `components/chat/ChatInput.tsx`
@@ -680,7 +700,9 @@ use them, but they no longer branch."
 
 **Interfaces:**
 - Consumes: `getModelDefinitionsForCli`, `normalizeModelId`, `getDefaultModelForCli` z Task 5.
-- Produces: UI zna tylko wybór modelu. `CreateProjectModal` przestaje przyjmować i wysyłać `preferredCli`; Task 18 dokłada do niego wybór template'u.
+- Produces: UI zna tylko wybór modelu. `CreateProjectModal` przestaje przyjmować i wysyłać `preferredCli`; Task 18 dokłada do niego wybór template'u. Po tym zadaniu żadne miejsce w kodzie nie czyta ani nie zapisuje `preferredCli` i `fallbackEnabled` — Task 7 może bezpiecznie zdjąć kolumny.
+
+To zadanie jest atomowe z konieczności: zawężenie unionów typów CLI, usunięcie trasy `cli-preference` i usunięcie funkcji preferencji z `project.ts` muszą wejść jednym commitem, bo każde z nich osobno zostawia drugiego bez konsumenta albo bez definicji.
 
 - [ ] **Step 1: Usuń hooka, mapy opcji i typy CLI**
 
@@ -688,6 +710,12 @@ use them, but they no longer branch."
 git rm hooks/useCLI.ts lib/utils/cliOptions.ts types/cli.ts types/shared/cli.ts
 git rm -r "app/api/chat/[project_id]/cli-preference"
 ```
+
+Następnie usuń plombę preferencji CLI, którą ta trasa była jedynym konsumentem:
+- `lib/services/project.ts` — usuń `ProjectCliPreference`, `getProjectCliPreference`, `updateProjectCliPreference` (linie ~163-225) w całości. W `createProject` usuń `preferredCli: input.preferredCli || 'claude',` i zamień `normalizeModelId(input.preferredCli || 'claude', ...)` na `normalizeModelId(null, ...)`. W `updateProject` usuń pobranie `existing` z `select: { preferredCli: true }` i wyliczanie `targetCli` — normalizuj przez `normalizeModelId(null, input.selectedModel)`. W `getAllProjects` i `getProjectById` zamień `normalizeModelId(project.preferredCli ?? 'claude', ...)` na `normalizeModelId(null, ...)`.
+- `app/api/projects/route.ts` — usuń `const preferredCli = ...` (linia 34) oraz pole `preferredCli` z `input`; `selectedModel` normalizuj przez `normalizeModelId(null, requestedModel ?? getDefaultModelForCli(null))`.
+- `lib/serializers/project.ts` — usuń `preferredCli` z serializowanego kształtu.
+- `types/backend/cli.ts`, `types/backend/project.ts` — zawęź uniony CLI do `'claude'` i usuń pola `preferredCli` / `fallbackEnabled`.
 
 - [ ] **Step 2: Usuń selektor CLI z ustawień**
 
@@ -756,33 +784,58 @@ selection stays, since Claude has several."
 - Create: `scripts/migrate-drop-legacy.js`
 - Create: `tests/migration/legacy-purge.test.ts`
 - Modify: `prisma/schema.prisma`
-- Modify: `package.json` (skrypt `db:backup`)
+- Modify: `package.json` (skrypty `db:backup`, `db:migrate-legacy`)
+- Verify (nie modyfikuj): `lib/services/project.ts`, `lib/serializers/project.ts` — po Task 6 nie mogą już zawierać `preferredCli` ani `fallbackEnabled`. Jeśli zawierają, wróć do Task 6; zdjęcie kolumn przy żywym konsumencie zepsuje kompilację po regeneracji klienta.
 
 **Interfaces:**
 - Consumes: nic.
 - Produces:
   ```ts
   // scripts/migrate-drop-legacy.js
-  module.exports = { legacyProviderFilter };  // { provider: { in: ['vercel','supabase'] } }
+  module.exports = { LEGACY_PROVIDERS, purgeLegacyConnections, main };
+  // purgeLegacyConnections(client) => Promise<number>  — testowalne bez bazy
   ```
   Task 22 dokumentuje `db:backup` w README.
 
-- [ ] **Step 1: Napisz failujący test filtra usuwania**
+- [ ] **Step 1: Napisz failujący test na tymczasowej bazie**
 
-Utwórz `tests/migration/legacy-purge.test.ts`:
+Utwórz `tests/migration/legacy-purge.test.ts`. Test sprawdza **zachowanie** — że po przebiegu zostaje GitHub, a znikają Vercel i Supabase — a nie że stała równa się literałowi przepisanemu z implementacji:
 
 ```ts
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error - skrypt migracji jest zwykłym CommonJS bez typów
-import { legacyProviderFilter } from '../../scripts/migrate-drop-legacy.js';
+import { purgeLegacyConnections } from '../../scripts/migrate-drop-legacy.js';
 
-describe('legacyProviderFilter', () => {
-  it('celuje wyłącznie w usunięte providery', () => {
-    expect(legacyProviderFilter).toEqual({ provider: { in: ['vercel', 'supabase'] } });
+/** Minimalna atrapa Prismy: trzyma wiersze w pamięci i realizuje deleteMany. */
+const fakeClient = (rows: { provider: string }[]) => ({
+  rows,
+  projectServiceConnection: {
+    async deleteMany({ where }: { where: { provider: { in: string[] } } }) {
+      const before = rows.length;
+      const kept = rows.filter((row) => !where.provider.in.includes(row.provider));
+      rows.length = 0;
+      rows.push(...kept);
+      return { count: before - rows.length };
+    },
+  },
+});
+
+describe('purgeLegacyConnections', () => {
+  it('usuwa połączenia Vercela i Supabase, zostawia GitHuba', async () => {
+    const rows = [{ provider: 'github' }, { provider: 'vercel' }, { provider: 'supabase' }];
+    const client = fakeClient(rows);
+
+    const removed = await purgeLegacyConnections(client);
+
+    expect(removed).toBe(2);
+    expect(rows).toEqual([{ provider: 'github' }]);
   });
 
-  it('nie obejmuje githuba', () => {
-    expect(legacyProviderFilter.provider.in).not.toContain('github');
+  it('nie usuwa nic, gdy nie ma czego', async () => {
+    const rows = [{ provider: 'github' }];
+    const client = fakeClient(rows);
+    expect(await purgeLegacyConnections(client)).toBe(0);
+    expect(rows).toEqual([{ provider: 'github' }]);
   });
 });
 ```
@@ -790,7 +843,7 @@ describe('legacyProviderFilter', () => {
 - [ ] **Step 2: Uruchom test i potwierdź, że failuje**
 
 Run: `npx vitest run tests/migration/legacy-purge.test.ts`
-Expected: FAIL — nie da się rozwiązać importu
+Expected: FAIL — `purgeLegacyConnections is not a function`
 
 - [ ] **Step 3: Napisz skrypt migracji z backupem**
 
@@ -806,7 +859,15 @@ Utwórz `scripts/migrate-drop-legacy.js`:
 const fs = require('fs');
 const path = require('path');
 
-const legacyProviderFilter = { provider: { in: ['vercel', 'supabase'] } };
+const LEGACY_PROVIDERS = ['vercel', 'supabase'];
+
+/** Wydzielone, żeby dało się przetestować bez prawdziwej bazy. */
+async function purgeLegacyConnections(client) {
+  const removed = await client.projectServiceConnection.deleteMany({
+    where: { provider: { in: LEGACY_PROVIDERS } },
+  });
+  return removed.count;
+}
 
 async function main() {
   const { PrismaClient } = require('@prisma/client');
@@ -823,10 +884,8 @@ async function main() {
 
   const prisma = new PrismaClient();
   try {
-    const removed = await prisma.projectServiceConnection.deleteMany({
-      where: legacyProviderFilter,
-    });
-    console.log(`🧹 Removed ${removed.count} legacy service connection(s)`);
+    const removed = await purgeLegacyConnections(prisma);
+    console.log(`🧹 Removed ${removed} legacy service connection(s)`);
   } finally {
     await prisma.$disconnect();
   }
@@ -839,7 +898,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { legacyProviderFilter, main };
+module.exports = { LEGACY_PROVIDERS, purgeLegacyConnections, main };
 ```
 
 - [ ] **Step 4: Uruchom test i potwierdź, że przechodzi**
@@ -878,8 +937,10 @@ Run:
 ```bash
 npm run db:migrate-legacy
 npx prisma generate
-npx prisma db push
+npx prisma db push --accept-data-loss
 ```
+`--accept-data-loss` jest konieczne: zdjęcie trzech kolumn to na SQLite przebudowa tabeli, a bez flagi Prisma czeka na interaktywne potwierdzenie i w nieinteraktywnej powłoce zawiesza się albo pada. Backup zrobił już krok wcześniej.
+
 Expected: log backupu, log liczby usuniętych połączeń, `prisma db push` kończy się sukcesem. Sprawdź, że projekt przeżył:
 ```bash
 node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().project.findMany().then(r=>{console.log(r.length,'projekt(y):',r.map(p=>p.name));process.exit(0)})"
@@ -1008,11 +1069,15 @@ W `app/[project_id]/chat/page.tsx` wynieś oba inline handlery przekazywane do `
 
 W JSX podmień `onAddUserMessage={(handlers) => {...}}` na `onAddUserMessage={handleChatHandlersReady}` i `onSessionStatusChange={(isRunningValue) => {...}}` na `onSessionStatusChange={handleSessionStatusChange}`.
 
-Logikę auto-startu preview, która była w inline handlerze (`hasInitialPrompt && !agentWorkComplete && !previewUrl` → `start()`), przenieś do osobnego efektu reagującego na `isRunning`:
+Logikę auto-startu preview, która była w inline handlerze (`hasInitialPrompt && !agentWorkComplete && !previewUrl` → `start()`), przenieś do osobnego efektu — ale reagującego na **przejście** `true → false`, nie na sam fakt, że `isRunning` jest `false`. Bez refu efekt odpaliłby się na pierwszym renderze, przed startem agenta, i uruchomił preview na pustym projekcie:
 
 ```ts
+  const prevIsRunningRef = useRef(false);
   useEffect(() => {
-    if (isRunning) return;
+    const wasRunning = prevIsRunningRef.current;
+    prevIsRunningRef.current = isRunning;
+    // Tylko zbocze opadające: agent skończył pracę, a nie „agent nie pracuje".
+    if (!wasRunning || isRunning) return;
     if (!hasInitialPrompt || agentWorkComplete || previewUrl) return;
     setAgentWorkComplete(true);
     localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
@@ -1029,9 +1094,20 @@ Expected: zero błędów, testy zielone, build przechodzi
 
 - [ ] **Step 8: Dowód z uruchomienia — brak pętli refetchowania**
 
-Run: `npm run dev`
+Mierz na buildzie produkcyjnym, nie w dev: `next.config.js:3` ma `reactStrictMode: true`, więc w dev każdy efekt montujący biegnie dwa razy i licznik żądań jest z definicji podwojony.
+
+Run:
+```bash
+npm run build && npm start
+```
 Następnie w przeglądarce otwórz projekt, zakładkę Network, filtr `messages`, i wyślij do agenta prompt („dodaj nagłówek na stronie głównej").
-Expected: **jedno** `GET /api/chat/<id>/messages` przy wejściu na stronę i żadnego kolejnego w trakcie pracy agenta. Wiadomości dochodzą przez SSE, lista nie mruga, skeleton nie wraca. Zapisz w raporcie zadania liczbę zaobserwowanych żądań `messages` w trakcie jednego runu agenta.
+
+Expected — progi zachowaniowe, nie równości:
+- **Skeleton nie wraca ani razu** po pierwszym wczytaniu. To jest właściwy objaw: `setIsLoading(true)` nie może się już odpalić w trakcie runu.
+- **≤ 2 żądania `messages`** na wejście na stronę, plus **najwyżej jedno** po zakończeniu runu (to zamierzone — krok 5 ustawia `setNeedsHistoryRefresh(true)`, żeby dociągnąć końcówkę bez migotania).
+- **Zero żądań `messages` w trakcie** pracy agenta — wiadomości dochodzą przez SSE.
+
+Zapisz w raporcie liczbę żądań w każdej z tych trzech faz. Jeśli w trakcie runu leci choć jedno, kaskada nie jest domknięta.
 
 - [ ] **Step 9: Commit**
 
@@ -1074,6 +1150,9 @@ Utwórz `tests/services/process-tree.test.ts`:
 
 ```ts
 import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { killProcessTree } from '@/lib/services/process-tree';
 
@@ -1093,19 +1172,28 @@ describe('killProcessTree', () => {
     expect(killProcessTree(undefined)).toBe(false);
   });
 
-  it.skipIf(process.platform === 'win32')('ubija proces razem z jego dzieckiem', async () => {
-    // sh uruchamia node jako dziecko: kill samego sh zostawiłby wnuka żywym
-    const child = spawn('sh', ['-c', 'node -e "setTimeout(()=>{}, 60000)" & wait'], {
-      detached: true,
-      stdio: 'ignore',
-    });
-    await wait(700);
-    const pid = child.pid!;
-    expect(isAlive(pid)).toBe(true);
+  it.skipIf(process.platform === 'win32')('ubija wnuka, nie tylko lidera grupy', async () => {
+    // Asercja MUSI dotyczyć wnuka. Gdyby sprawdzała tylko pid `sh`, przeszłaby
+    // także dla `process.kill(pid)` — czyli dla wadliwego zachowania, które to
+    // zadanie naprawia.
+    const marker = path.join(os.tmpdir(), `ptree-${process.pid}-${Date.now()}.pid`);
+    const child = spawn(
+      'sh',
+      ['-c', `node -e "setTimeout(()=>{}, 60000)" & echo $! > ${marker}; wait`],
+      { detached: true, stdio: 'ignore' }
+    );
+    await wait(900);
 
-    expect(killProcessTree(pid)).toBe(true);
-    await wait(700);
-    expect(isAlive(pid)).toBe(false);
+    const grandchildPid = Number.parseInt(await fs.readFile(marker, 'utf8'), 10);
+    expect(Number.isInteger(grandchildPid)).toBe(true);
+    expect(isAlive(grandchildPid)).toBe(true);
+
+    expect(killProcessTree(child.pid!)).toBe(true);
+    await wait(900);
+
+    expect(isAlive(grandchildPid)).toBe(false);
+    expect(isAlive(child.pid!)).toBe(false);
+    await fs.rm(marker, { force: true });
   });
 });
 ```
@@ -1237,16 +1325,29 @@ Sprawdź, czy `next.config.js` nie wyłącza instrumentacji. W Next 15 hook jest
 
 - [ ] **Step 8: Dowód z uruchomienia — brak sierot**
 
+**Nie używaj Ctrl+C jako dowodu.** Dziś preview startuje bez `detached`, więc siedzi w tej samej grupie procesów pierwszoplanowych co Claudable i Ctrl+C już go zabija — test przeszedłby przed zmianą. Po dodaniu `detached: true` Ctrl+C przestaje go dosięgać i jedyną obroną jest handler z kroku 7. Dowód musi więc celować w realny scenariusz z audytu: sygnał do samego procesu serwera.
+
 Run:
 ```bash
-npm run dev
+npm run dev &
 # w UI: uruchom preview dowolnego projektu, zaczekaj na "ready"
-# w drugim terminalu:
-ps -ef | grep -c "[d]ata/projects"
-# Ctrl+C na Claudable, potem znowu:
-ps -ef | grep -c "[d]ata/projects"
+ps -ef | grep "[d]ata/projects" | wc -l          # oczekiwane: >= 1
+SERVER_PID=$(pgrep -f "next dev" | head -1)
+kill -TERM $SERVER_PID
+sleep 3
+ps -ef | grep "[d]ata/projects" | wc -l          # oczekiwane: 0
 ```
-Expected: pierwszy odczyt ≥ 1, drugi `0`. Wklej oba do raportu zadania.
+Expected: pierwszy odczyt ≥ 1, drugi `0`, a w logach linia `[Shutdown] SIGTERM received`.
+
+Dołóż log **po** `stopAll()`, żeby udowodnić, że handler dobiegł do końca, a nie że Next zawołał `process.exit` w trakcie:
+
+```ts
+    console.log('[Shutdown] Preview servers stopped');
+```
+
+Jeśli tej linii nie ma w logach, handler jest wyprzedzany przez cudzy `process.exit` — zgłoś jako BLOCKED wraz z logiem, nie obchodź.
+
+Powtórz ten sam pomiar dla kontenera w Task 20: `docker compose stop` i `ps` w środku kontenera przed zatrzymaniem.
 
 - [ ] **Step 9: Commit**
 
@@ -1827,24 +1928,14 @@ describe('resolveClaudeConfigDir', () => {
 });
 ```
 
-- [ ] **Step 2: Rozszerz test opcji o parytet**
+- [ ] **Step 2: Rozszerz test opcji o źródła ustawień**
 
-W `tests/cli/claude-options.test.ts` dodaj do bloku `describe('buildClaudeQueryOptions', ...)`:
+Preset promptu wszedł już w Task 1 (i ma tam swój test) — tutaj dochodzi tylko ładowanie z dysku. W `tests/cli/claude-options.test.ts` dodaj do bloku `describe('buildClaudeQueryOptions', ...)`:
 
 ```ts
-  it('używa presetowego promptu Claude Code, bez nadpisania i bez append', () => {
-    const options = buildClaudeQueryOptions(input);
-    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' });
-  });
-
   it('włącza wszystkie źródła ustawień z dysku', () => {
     const options = buildClaudeQueryOptions(input);
     expect(options.settingSources).toEqual(['user', 'project', 'local']);
-  });
-
-  it('nie nakłada limitu tokenów wyjścia', () => {
-    const options = buildClaudeQueryOptions(input);
-    expect(options.maxOutputTokens).toBeUndefined();
   });
 ```
 
@@ -1888,11 +1979,9 @@ export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options
     resume: input.sessionId,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
-    // Preset, nie string: string ZASTĘPUJE prompt Claude Code, a pominięcie
-    // opcji daje prompt pusty. Preset bez `append` to jedyny sposób na
-    // zachowanie się jak `claude` w terminalu.
     systemPrompt: { type: 'preset', preset: 'claude_code' },
-    // Skille, CLAUDE.md, hooki i MCP z katalogu konfiguracyjnego.
+    // Nowe w tym zadaniu: skille, CLAUDE.md, hooki i MCP z katalogu
+    // konfiguracyjnego. Bez tego SDK działa w trybie izolacji i nie czyta z dysku nic.
     settingSources: ['user', 'project', 'local'],
   };
 }
@@ -1901,14 +1990,15 @@ export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options
 - [ ] **Step 6: Uruchom testy i potwierdź, że przechodzą**
 
 Run: `npx vitest run tests/cli/`
-Expected: PASS — 7 testów w `claude-options`, 3 w `claude-config-dir`, 2 w `init-payload`
+Expected: PASS — 6 testów w `claude-options`, 3 w `claude-config-dir`, 2 w `init-payload`
 
-- [ ] **Step 7: Zdejmij limit tokenów i guard ścieżki z `claude.ts`**
+- [ ] **Step 7: Zdejmij guard ścieżki z `claude.ts`**
+
+`maxOutputTokens` wypadło już w Task 1 razem z rzutowaniem `as any` — i, jak się okazało, nigdy nie działało (nie ma tej właściwości w typie `Options` SDK), więc decyzja 25 nie zmienia żadnego zachowania. Tutaj zostaje guard.
 
 W `lib/services/cli/claude.ts`:
-1. Usuń `const configuredMaxTokens = ...` i `const maxOutputTokens = ...` (~582-585) oraz `maxOutputTokens,` z obiektu opcji `query()`.
-2. Usuń cały blok walidacji ścieżki — od `// Security: Verify project path is within allowed directory` do `throw new Error(errorMessage);` włącznie z obliczaniem `allowedBasePath`, `relativeToBase` i `isWithinBase` (~684-700). Zostaje samo wyliczenie `absoluteProjectPath` oraz tworzenie katalogu, jeśli nie istnieje.
-3. Zamień lokalne wyliczenie `absoluteProjectPath` na `resolveProjectRoot` z Task 10:
+1. Usuń cały blok walidacji ścieżki — od `// Security: Verify project path is within allowed directory` do `throw new Error(errorMessage);` włącznie z obliczaniem `allowedBasePath`, `relativeToBase` i `isWithinBase` (~684-700). Zostaje samo wyliczenie `absoluteProjectPath` oraz tworzenie katalogu, jeśli nie istnieje.
+2. Zamień lokalne wyliczenie `absoluteProjectPath` na `resolveProjectRoot` z Task 10:
    ```ts
    import { resolveProjectRoot } from '@/lib/utils/project-path';
    // ...
@@ -2425,7 +2515,9 @@ Instrukcje specyficzne dla frameworka **nie** idą do system promptu (decyzja 23
 ### Task 16: Rejestr template'ów i template Next.js (decyzje 8, 9, znalezisko K)
 
 **Files:**
-- Create: `lib/templates/index.ts`
+- Create: `lib/templates/meta.ts` (czysty — importowalny z klienta)
+- Create: `lib/templates/run-dev.ts` (jeden generator wrappera dev)
+- Create: `lib/templates/index.ts` (tylko serwer — dotyka `fs`)
 - Create: `lib/templates/nextjs.ts`
 - Create: `tests/templates/registry.test.ts`
 - Delete: `lib/utils/scaffold.ts`
@@ -2435,33 +2527,45 @@ Instrukcje specyficzne dla frameworka **nie** idą do system promptu (decyzja 23
 - Consumes: nic.
 - Produces:
   ```ts
-  // lib/templates/index.ts
+  // lib/templates/meta.ts — BEZ importów node:fs, wolno importować z klienta
   export type TemplateId = 'nextjs' | 'astro';
-  export interface ProjectTemplate {
-    id: TemplateId;
-    label: string;
-    description: string;
+  export interface TemplateMeta { id: TemplateId; label: string; description: string }
+  export const TEMPLATE_META: Record<TemplateId, TemplateMeta>;
+  export const TEMPLATE_META_LIST: TemplateMeta[];
+  export const DEFAULT_TEMPLATE_ID: TemplateId;                      // 'nextjs'
+  export function normalizeTemplateType(value?: string | null): TemplateId;
+
+  // lib/templates/run-dev.ts
+  export interface RunDevSpec { label: string; binary: string; preArgs: string[]; postArgs: string[] }
+  export function renderRunDevScript(spec: RunDevSpec): string;       // treść skryptu ESM
+
+  // lib/templates/index.ts — TYLKO SERWER
+  export interface ProjectTemplate extends TemplateMeta {
     scaffold(projectPath: string, projectId: string): Promise<void>;
   }
   export const TEMPLATES: Record<TemplateId, ProjectTemplate>;
-  export const TEMPLATE_LIST: ProjectTemplate[];
-  export const DEFAULT_TEMPLATE_ID: TemplateId;      // 'nextjs'
-  export function getTemplate(id?: string | null): ProjectTemplate;  // nieznane → domyślny
+  export function getTemplate(id?: string | null): ProjectTemplate;   // nieznane → domyślny
   ```
-  Task 17 dodaje wpis `astro`; Task 18 podłącza `templateType` z bazy.
+  Task 17 dodaje wpis `astro`; Task 18 podłącza `templateType` z bazy i importuje **wyłącznie** `meta.ts`.
 
-Rejestr nie ma pola `devCommand`: każdy template scaffolduje własny `scripts/run-dev.js` i `"dev": "node scripts/run-dev.js"` w `package.json`, więc `PreviewManager` dalej odpala `npm run dev -- --port N` i nie musi wiedzieć nic o frameworku.
+**Dlaczego dwa pliki, a nie jeden.** `index.ts` importuje scaffold, ten importuje `fs/promises`, a webpackowy fallback w `next.config.js` pokrywa tylko `fs`, `path` i `os` — nie `fs/promises`. Import rejestru z komponentu klienckiego wywali build na `Module not found: Can't resolve 'fs/promises'`. `meta.ts` jest szwem: same dane, zero `fs`.
+
+**Wrapper dev jest jeden, generowany.** Każdy template zapisuje `scripts/run-dev.mjs` wyprodukowany przez `renderRunDevScript` i wpis `"dev": "node scripts/run-dev.mjs"`. Rozszerzenie `.mjs` jest celowe: template Astro ma `"type": "module"`, więc wrapper z `require()` nie uruchomiłby się wcale, a `.mjs` jest ESM niezależnie od typu pakietu. `PreviewManager` dalej odpala `npm run dev -- --port N` i nie wie nic o frameworku, ale parser argumentów i resolver portu istnieją raz — testują się raz i psują się raz.
 
 - [ ] **Step 1: Napisz failujący test**
 
 Utwórz `tests/templates/registry.test.ts`:
 
 ```ts
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_TEMPLATE_ID, TEMPLATES, getTemplate } from '@/lib/templates';
+import { DEFAULT_TEMPLATE_ID, TEMPLATES, getTemplate, normalizeTemplateType } from '@/lib/templates';
+
+const execFileAsync = promisify(execFile);
 
 const scaffoldInto = async (id: 'nextjs' | 'astro') => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `tpl-${id}-`));
@@ -2471,6 +2575,23 @@ const scaffoldInto = async (id: 'nextjs' | 'astro') => {
 
 const readJson = async (dir: string, file: string) =>
   JSON.parse(await fs.readFile(path.join(dir, file), 'utf8'));
+
+describe('normalizeTemplateType', () => {
+  it('przepuszcza znane template\'y', () => {
+    expect(normalizeTemplateType('nextjs')).toBe('nextjs');
+    expect(normalizeTemplateType('astro')).toBe('astro');
+  });
+
+  it('znosi różnice w wielkości liter i spacje', () => {
+    expect(normalizeTemplateType(' Astro ')).toBe('astro');
+  });
+
+  it('nieznane i puste schodzą do nextjs', () => {
+    expect(normalizeTemplateType('vue')).toBe('nextjs');
+    expect(normalizeTemplateType(null)).toBe('nextjs');
+    expect(normalizeTemplateType(undefined)).toBe('nextjs');
+  });
+});
 
 describe('getTemplate', () => {
   it('domyślnym template jest nextjs', () => {
@@ -2482,10 +2603,6 @@ describe('getTemplate', () => {
   it('nieznane id schodzi do domyślnego, nie wybucha', () => {
     expect(getTemplate('vue').id).toBe('nextjs');
   });
-
-  it('zwraca wskazany template', () => {
-    expect(getTemplate('nextjs').id).toBe('nextjs');
-  });
 });
 
 describe('template nextjs', () => {
@@ -2494,23 +2611,17 @@ describe('template nextjs', () => {
     for (const file of [
       'package.json', 'tsconfig.json', 'next.config.js',
       'app/layout.tsx', 'app/page.tsx', 'app/globals.css',
-      'scripts/run-dev.js', 'CLAUDE.md',
+      'scripts/run-dev.mjs', 'CLAUDE.md',
     ]) {
       await expect(fs.access(path.join(dir, file))).resolves.toBeUndefined();
     }
   });
 
-  it('uruchamia dev przez własny wrapper', async () => {
+  it('uruchamia dev przez wygenerowany wrapper', async () => {
     const dir = await scaffoldInto('nextjs');
     const pkg = await readJson(dir, 'package.json');
-    expect(pkg.scripts.dev).toBe('node scripts/run-dev.js');
+    expect(pkg.scripts.dev).toBe('node scripts/run-dev.mjs');
     expect(pkg.name).toBe('proj-test');
-  });
-
-  it('binduje wszystkie interfejsy, żeby port dał się opublikować', async () => {
-    const dir = await scaffoldInto('nextjs');
-    const runDev = await fs.readFile(path.join(dir, 'scripts/run-dev.js'), 'utf8');
-    expect(runDev).toContain('0.0.0.0');
   });
 
   it('zostawia agentowi instrukcje w CLAUDE.md', async () => {
@@ -2528,6 +2639,35 @@ describe('template nextjs', () => {
     expect(page).toContain('function X');
   });
 });
+
+// Te trzy asercje pilnują błędu, który w duplikowanym wrapperze pojawił się
+// natychmiast: `require()` w pakiecie ESM to błąd czasu wykonania, więc
+// sprawdzanie samej obecności stringu w kodzie by go nie wyłapało.
+describe('wygenerowany wrapper dev', () => {
+  it.each(['nextjs', 'astro'] as const)('%s: jest ESM, bez require', async (id) => {
+    if (!TEMPLATES[id]) return; // astro dochodzi w Task 17
+    const dir = await scaffoldInto(id);
+    const runDev = await fs.readFile(path.join(dir, 'scripts/run-dev.mjs'), 'utf8');
+    expect(runDev).toMatch(/^import /m);
+    expect(runDev).not.toMatch(/\brequire\(/);
+    expect(runDev).not.toMatch(/__dirname/);
+  });
+
+  it.each(['nextjs', 'astro'] as const)('%s: parsuje się jako moduł', async (id) => {
+    if (!TEMPLATES[id]) return;
+    const dir = await scaffoldInto(id);
+    await expect(
+      execFileAsync(process.execPath, ['--check', path.join(dir, 'scripts/run-dev.mjs')])
+    ).resolves.toBeTruthy();
+  });
+
+  it.each(['nextjs', 'astro'] as const)('%s: binduje wszystkie interfejsy', async (id) => {
+    if (!TEMPLATES[id]) return;
+    const dir = await scaffoldInto(id);
+    const runDev = await fs.readFile(path.join(dir, 'scripts/run-dev.mjs'), 'utf8');
+    expect(runDev).toContain('0.0.0.0');
+  });
+});
 ```
 
 - [ ] **Step 2: Uruchom test i potwierdź, że failuje**
@@ -2535,18 +2675,168 @@ describe('template nextjs', () => {
 Run: `npx vitest run tests/templates/registry.test.ts`
 Expected: FAIL — nie da się rozwiązać importu `@/lib/templates`
 
-- [ ] **Step 3: Przenieś scaffold Next.js do template'u**
+- [ ] **Step 3: Napisz generator wrappera dev**
 
-Utwórz `lib/templates/nextjs.ts`. Przenieś do niego **całą** treść `lib/utils/scaffold.ts` (helper `writeFileIfMissing` oraz wszystkie bloki zapisujące pliki), z czterema zmianami:
+Utwórz `lib/templates/run-dev.ts`:
+
+```ts
+export interface RunDevSpec {
+  /** Nazwa w logu startowym, np. "Next.js" */
+  label: string;
+  /** Binarka odpalana przez npx, np. "next" albo "astro" */
+  binary: string;
+  /** Argumenty przed --port, np. ["dev"] */
+  preArgs: string[];
+  /** Argumenty po --port, np. ["--hostname", "0.0.0.0"] */
+  postArgs: string[];
+}
+
+/**
+ * Jeden generator dla wszystkich template'ów. Emituje ESM, bo template
+ * z `"type": "module"` nie uruchomi wrappera z `require()`. Parser argumentów
+ * i resolver portu istnieją tu raz, a nie raz na framework.
+ */
+export function renderRunDevScript(spec: RunDevSpec): string {
+  // Port jest znany w czasie działania, nie generowania — stąd marker.
+  const argTemplate = JSON.stringify([...spec.preArgs, '--port', '__PORT__', ...spec.postArgs]);
+
+  return [
+    '#!/usr/bin/env node',
+    "import { spawn } from 'node:child_process';",
+    "import path from 'node:path';",
+    "import { fileURLToPath } from 'node:url';",
+    '',
+    "const projectRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');",
+    "const isWindows = process.platform === 'win32';",
+    '',
+    'function parseCliArgs(argv) {',
+    '  const passthrough = [];',
+    '  let preferredPort;',
+    '  for (let i = 0; i < argv.length; i += 1) {',
+    '    const arg = argv[i];',
+    "    if (arg === '--port' || arg === '-p') {",
+    '      const value = argv[i + 1];',
+    "      if (value && !value.startsWith('-')) {",
+    '        const parsed = Number.parseInt(value, 10);',
+    '        if (!Number.isNaN(parsed)) preferredPort = parsed;',
+    '        i += 1;',
+    '        continue;',
+    '      }',
+    "    } else if (arg.startsWith('--port=')) {",
+    "      const parsed = Number.parseInt(arg.slice('--port='.length), 10);",
+    '      if (!Number.isNaN(parsed)) preferredPort = parsed;',
+    '      continue;',
+    '    }',
+    '    passthrough.push(arg);',
+    '  }',
+    '  return { preferredPort, passthrough };',
+    '}',
+    '',
+    'function resolvePort(preferredPort) {',
+    '  const candidates = [preferredPort, process.env.PORT, process.env.PREVIEW_PORT_START, 3100];',
+    '  for (const candidate of candidates) {',
+    '    if (candidate === undefined || candidate === null) continue;',
+    "    const numeric = typeof candidate === 'number' ? candidate : Number.parseInt(String(candidate), 10);",
+    '    if (!Number.isNaN(numeric) && numeric > 0 && numeric <= 65535) return numeric;',
+    '  }',
+    '  return 3100;',
+    '}',
+    '',
+    'const { preferredPort, passthrough } = parseCliArgs(process.argv.slice(2));',
+    'const port = resolvePort(preferredPort);',
+    'const url = process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${port}`;',
+    '',
+    'process.env.PORT = String(port);',
+    'process.env.NEXT_PUBLIC_APP_URL = url;',
+    '',
+    `console.log(\`🚀 Starting ${spec.label} dev server on \${url}\`);`,
+    '',
+    `const args = ${argTemplate}.map((arg) => (arg === '__PORT__' ? String(port) : arg));`,
+    `const child = spawn('npx', ['${spec.binary}', ...args, ...passthrough], {`,
+    '  cwd: projectRoot,',
+    "  stdio: 'inherit',",
+    '  shell: isWindows,',
+    "  env: { ...process.env, PORT: String(port), NEXT_PUBLIC_APP_URL: url, NEXT_TELEMETRY_DISABLED: '1' },",
+    '});',
+    '',
+    "child.on('exit', (code) => {",
+    "  if (typeof code === 'number' && code !== 0) {",
+    `    console.error(\`❌ ${spec.label} dev server exited with code \${code}\`);`,
+    '    process.exit(code);',
+    '  }',
+    '});',
+    '',
+    "child.on('error', (error) => {",
+    `  console.error('❌ Failed to start the ${spec.label} dev server');`,
+    '  console.error(error instanceof Error ? error.message : error);',
+    '  process.exit(1);',
+    '});',
+    '',
+  ].join('\n');
+}
+```
+
+- [ ] **Step 4: Napisz metadane template'ów**
+
+Utwórz `lib/templates/meta.ts`:
+
+```ts
+export type TemplateId = 'nextjs' | 'astro';
+
+export interface TemplateMeta {
+  id: TemplateId;
+  label: string;
+  description: string;
+}
+
+/** Bez importów `fs` — ten plik musi być importowalny z komponentu klienckiego. */
+export const TEMPLATE_META: Record<TemplateId, TemplateMeta> = {
+  nextjs: {
+    id: 'nextjs',
+    label: 'Next.js',
+    description: 'React with the App Router, server components and API routes',
+  },
+  astro: {
+    id: 'astro',
+    label: 'Astro',
+    description: 'Content-first static site generator with island hydration',
+  },
+};
+
+export const TEMPLATE_META_LIST: TemplateMeta[] = Object.values(TEMPLATE_META);
+
+export const DEFAULT_TEMPLATE_ID: TemplateId = 'nextjs';
+
+export function normalizeTemplateType(value?: string | null): TemplateId {
+  const candidate = value?.trim().toLowerCase();
+  if (candidate && candidate in TEMPLATE_META) {
+    return candidate as TemplateId;
+  }
+  return DEFAULT_TEMPLATE_ID;
+}
+```
+
+- [ ] **Step 5: Przenieś scaffold Next.js do template'u**
+
+Utwórz `lib/templates/nextjs.ts`. Przenieś do niego **całą** treść `lib/utils/scaffold.ts` (helper `writeFileIfMissing` i wszystkie bloki zapisujące pliki), z pięcioma zmianami:
 
 1. Eksport nazwij `scaffoldNextApp` zamiast `scaffoldBasicNextApp`.
-2. W generowanym `scripts/run-dev.js` dodaj bindowanie wszystkich interfejsów — w tablicy argumentów `next dev`:
-   ```js
-   ['next', 'dev', '--port', String(port), '--hostname', '0.0.0.0', ...passthrough]
+2. W generowanym `package.json` ustaw `dev: 'node scripts/run-dev.mjs'`.
+3. **Usuń w całości** blok generujący `scripts/run-dev.js` (~90 linii) i zastąp go wywołaniem generatora:
+   ```ts
+   await writeFileIfMissing(
+     path.join(projectPath, 'scripts/run-dev.mjs'),
+     renderRunDevScript({
+       label: 'Next.js',
+       binary: 'next',
+       preArgs: ['dev'],
+       postArgs: ['--hostname', '0.0.0.0'],
+     })
+   );
    ```
-   Bez tego opublikowany port kontenera nie dosięgnie procesu.
-3. Usuń z generowanej `app/page.tsx` link do `vercel.com/templates` razem z jego blokiem `<a>` (zostały po usuniętej integracji).
-4. Dopisz nowy plik `CLAUDE.md`:
+   z importem `import { renderRunDevScript } from './run-dev';`. `--hostname 0.0.0.0` jest konieczne — bez niego opublikowany port kontenera nie dosięgnie procesu.
+4. Usuń z generowanej `app/page.tsx` link do `vercel.com/templates` razem z jego blokiem `<a>`.
+5. Dopisz nowy plik `CLAUDE.md`:
 
 ```ts
   await writeFileIfMissing(
@@ -2555,7 +2845,7 @@ Utwórz `lib/templates/nextjs.ts`. Przenieś do niego **całą** treść `lib/ut
 
 This is a Next.js 15 application using the App Router.
 
-- TypeScript everywhere; no plain \`.js\` source files.
+- TypeScript everywhere; no plain .js source files.
 - Styling with Tailwind CSS. Install it yourself if it is not present yet.
 - Keep every file directly under this project root. Never scaffold a
   framework into a subdirectory — run generators against the current
@@ -2563,40 +2853,30 @@ This is a Next.js 15 application using the App Router.
 - The platform installs dependencies and runs the preview dev server for
   you. You do not need to start one, and a second dev server on another
   port will not be reachable.
-- The live preview URL is in \`NEXT_PUBLIC_APP_URL\`. Read it rather than
+- The live preview URL is in NEXT_PUBLIC_APP_URL. Read it rather than
   assuming a port.
 `
   );
 ```
 
-- [ ] **Step 4: Napisz rejestr**
+- [ ] **Step 6: Napisz rejestr**
 
 Utwórz `lib/templates/index.ts`:
 
 ```ts
 import { scaffoldNextApp } from './nextjs';
+import { DEFAULT_TEMPLATE_ID, TEMPLATE_META, type TemplateId, type TemplateMeta } from './meta';
 
-export type TemplateId = 'nextjs' | 'astro';
+export type { TemplateId, TemplateMeta } from './meta';
+export { DEFAULT_TEMPLATE_ID, TEMPLATE_META, TEMPLATE_META_LIST, normalizeTemplateType } from './meta';
 
-export interface ProjectTemplate {
-  id: TemplateId;
-  label: string;
-  description: string;
+export interface ProjectTemplate extends TemplateMeta {
   scaffold(projectPath: string, projectId: string): Promise<void>;
 }
 
-export const DEFAULT_TEMPLATE_ID: TemplateId = 'nextjs';
-
 export const TEMPLATES: Record<TemplateId, ProjectTemplate> = {
-  nextjs: {
-    id: 'nextjs',
-    label: 'Next.js',
-    description: 'React with the App Router, server components and API routes',
-    scaffold: scaffoldNextApp,
-  },
+  nextjs: { ...TEMPLATE_META.nextjs, scaffold: scaffoldNextApp },
 } as Record<TemplateId, ProjectTemplate>;
-
-export const TEMPLATE_LIST: ProjectTemplate[] = Object.values(TEMPLATES);
 
 /**
  * Nieznane albo brakujące id schodzi do domyślnego template'u — istniejące
@@ -2611,9 +2891,9 @@ export function getTemplate(id?: string | null): ProjectTemplate {
 }
 ```
 
-Uwaga: rzutowanie `as Record<TemplateId, ProjectTemplate>` istnieje tylko dlatego, że wpis `astro` dochodzi w Task 17. **Usuń je w Task 17**, gdy mapa będzie kompletna — inaczej zostanie w kodzie jako trwała dziura w typach.
+Rzutowanie `as Record<TemplateId, ProjectTemplate>` istnieje **tylko** dlatego, że wpis `astro` dochodzi w Task 17. Usuń je w Task 17, gdy mapa będzie kompletna — inaczej zostanie w kodzie jako trwała dziura w typach.
 
-- [ ] **Step 5: Usuń stary scaffold i przekieruj `PreviewManager`**
+- [ ] **Step 7: Usuń stary scaffold i przekieruj `PreviewManager`**
 
 ```bash
 git rm lib/utils/scaffold.ts
@@ -2625,33 +2905,35 @@ W `lib/services/preview.ts` zamień import `scaffoldBasicNextApp` na:
 import { getTemplate } from '@/lib/templates';
 ```
 
-i w obu miejscach (`installDependencies` i `start`) zamień wywołanie `await scaffoldBasicNextApp(projectPath, projectId);` na:
+i w obu miejscach (`installDependencies` i `start`) zamień `await scaffoldBasicNextApp(projectPath, projectId);` na:
 
 ```ts
       await getTemplate(project.templateType).scaffold(projectPath, projectId);
 ```
 
-- [ ] **Step 6: Uruchom test i potwierdź, że przechodzi**
+- [ ] **Step 8: Uruchom test i potwierdź, że przechodzi**
 
 Run: `npx vitest run tests/templates/registry.test.ts`
-Expected: PASS — 9 testów
+Expected: PASS. Testy `it.each` dla `astro` przechodzą przez wczesny `return` (wpis dochodzi w Task 17) — to zamierzone, tam zaczną realnie sprawdzać.
 
-- [ ] **Step 7: Sprawdź typy, testy i build**
+- [ ] **Step 9: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
 Expected: zero błędów, testy zielone, build przechodzi
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add -A
 git commit -m "refactor: turn the Next.js scaffold into a template registry
 
-Templates become entries in a registry instead of one hardcoded
-function, so adding a framework is one file. Framework conventions go
-into the generated project's CLAUDE.md, which the agent reads from its
-working directory, rather than into the system prompt. The dev wrapper
-binds all interfaces so a published container port can reach it."
+Templates become registry entries instead of one hardcoded function, so
+adding a framework is one file. Framework conventions go into the
+generated project's CLAUDE.md, which the agent reads from its working
+directory, rather than into the system prompt. One generator emits the
+dev wrapper for every template - as ESM, since a template package can
+be type: module - and metadata lives in a separate fs-free module so
+client components can import it."
 ```
 
 ### Task 17: Template Astro (decyzja 8)
@@ -2686,24 +2968,21 @@ describe('template astro', () => {
     for (const file of [
       'package.json', 'astro.config.mjs', 'tsconfig.json',
       'src/pages/index.astro', 'src/layouts/Layout.astro',
-      'scripts/run-dev.js', 'CLAUDE.md',
+      'scripts/run-dev.mjs', 'CLAUDE.md',
     ]) {
       await expect(fs.access(path.join(dir, file))).resolves.toBeUndefined();
     }
   });
 
-  it('uruchamia dev przez własny wrapper i zależy od astro', async () => {
+  it('jest pakietem ESM zależnym od astro, nie od nexta', async () => {
     const dir = await scaffoldInto('astro');
     const pkg = await readJson(dir, 'package.json');
-    expect(pkg.scripts.dev).toBe('node scripts/run-dev.js');
+    expect(pkg.type).toBe('module');
+    expect(pkg.scripts.dev).toBe('node scripts/run-dev.mjs');
     expect(pkg.dependencies.astro).toMatch(/^\^\d+\.0\.0$/);
     expect(pkg.dependencies).not.toHaveProperty('next');
-  });
-
-  it('binduje wszystkie interfejsy', async () => {
-    const dir = await scaffoldInto('astro');
-    const runDev = await fs.readFile(path.join(dir, 'scripts/run-dev.js'), 'utf8');
-    expect(runDev).toContain('0.0.0.0');
+    // astro check bez @astrojs/check pada przy pierwszym użyciu
+    expect(pkg.devDependencies).toHaveProperty('@astrojs/check');
   });
 
   it('mówi agentowi, że to Astro, a nie Next', async () => {
@@ -2727,6 +3006,7 @@ Utwórz `lib/templates/astro.ts` (podstaw odczytaną wersję w miejsce `^6.0.0`,
 ```ts
 import fs from 'fs/promises';
 import path from 'path';
+import { renderRunDevScript } from './run-dev';
 
 async function writeFileIfMissing(filePath: string, contents: string) {
   try {
@@ -2757,6 +3037,7 @@ export async function scaffoldAstroApp(projectPath: string, projectId: string) {
       astro: '^6.0.0',
     },
     devDependencies: {
+      '@astrojs/check': '^0.9.0',
       typescript: '^5.7.2',
     },
   };
@@ -2842,93 +3123,13 @@ import Layout from '../layouts/Layout.astro';
   );
 
   await writeFileIfMissing(
-    path.join(projectPath, 'scripts/run-dev.js'),
-    `#!/usr/bin/env node
-
-const { spawn } = require('child_process');
-const path = require('path');
-
-const projectRoot = path.join(__dirname, '..');
-const isWindows = process.platform === 'win32';
-
-function parseCliArgs(argv) {
-  const passthrough = [];
-  let preferredPort;
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-
-    if (arg === '--port' || arg === '-p') {
-      const value = argv[i + 1];
-      if (value && !value.startsWith('-')) {
-        const parsed = Number.parseInt(value, 10);
-        if (!Number.isNaN(parsed)) {
-          preferredPort = parsed;
-        }
-        i += 1;
-        continue;
-      }
-    } else if (arg.startsWith('--port=')) {
-      const parsed = Number.parseInt(arg.slice('--port='.length), 10);
-      if (!Number.isNaN(parsed)) {
-        preferredPort = parsed;
-      }
-      continue;
-    }
-
-    passthrough.push(arg);
-  }
-
-  return { preferredPort, passthrough };
-}
-
-function resolvePort(preferredPort) {
-  const candidates = [preferredPort, process.env.PORT, process.env.PREVIEW_PORT_START, 3100];
-  for (const candidate of candidates) {
-    if (candidate === undefined || candidate === null) continue;
-    const numeric = typeof candidate === 'number' ? candidate : Number.parseInt(String(candidate), 10);
-    if (!Number.isNaN(numeric) && numeric > 0 && numeric <= 65535) {
-      return numeric;
-    }
-  }
-  return 3100;
-}
-
-(async () => {
-  const { preferredPort, passthrough } = parseCliArgs(process.argv.slice(2));
-  const port = resolvePort(preferredPort);
-  const url = process.env.NEXT_PUBLIC_APP_URL || \`http://localhost:\${port}\`;
-
-  process.env.PORT = String(port);
-  process.env.NEXT_PUBLIC_APP_URL = url;
-
-  console.log(\`🚀 Starting Astro dev server on \${url}\`);
-
-  const child = spawn(
-    'npx',
-    ['astro', 'dev', '--port', String(port), '--host', '0.0.0.0', ...passthrough],
-    {
-      cwd: projectRoot,
-      stdio: 'inherit',
-      shell: isWindows,
-      env: { ...process.env, PORT: String(port), NEXT_PUBLIC_APP_URL: url },
-    }
-  );
-
-  child.on('exit', (code) => {
-    if (typeof code === 'number' && code !== 0) {
-      console.error(\`❌ Astro dev server exited with code \${code}\`);
-      process.exit(code);
-    }
-  });
-
-  child.on('error', (error) => {
-    console.error('❌ Failed to start Astro dev server');
-    console.error(error instanceof Error ? error.message : error);
-    process.exit(1);
-  });
-})();
-`
+    path.join(projectPath, 'scripts/run-dev.mjs'),
+    renderRunDevScript({
+      label: 'Astro',
+      binary: 'astro',
+      preArgs: ['dev'],
+      postArgs: ['--host', '0.0.0.0'],
+    })
   );
 
   await writeFileIfMissing(
@@ -2977,18 +3178,63 @@ Expected: PASS — 14 testów
 
 - [ ] **Step 7: Dowód, że scaffold naprawdę się uruchamia**
 
-Run:
-```bash
-TMP=$(mktemp -d)
-node -e "require('tsx/cjs');" 2>/dev/null || npx tsx -e "
-  import('./lib/templates/index.ts').then(async (m) => {
-    await m.TEMPLATES.astro.scaffold(process.env.TMP, 'astro-smoke');
-  })
-" || echo "użyj vitesta do wygenerowania katalogu, jeśli tsx nie jest dostępny"
-cd $TMP && npm install --no-audit --no-fund && timeout 60 npm run dev -- --port 3199 &
-sleep 25 && curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3199/
+To jest krok obowiązkowy, nie opcjonalny — testy jednostkowe czytają wygenerowany wrapper, ale go nie uruchamiają. Duplikat wrappera, którego to zadanie już nie tworzy, miał `require()` w pakiecie ESM: błąd czasu wykonania, niewidoczny dla żadnej asercji na treści pliku.
+
+Dodaj tymczasowy plik `tests/templates/astro-smoke.test.ts`:
+
+```ts
+import { execFile, spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import { afterAll, describe, expect, it } from 'vitest';
+import { TEMPLATES } from '@/lib/templates';
+
+const execFileAsync = promisify(execFile);
+const PORT = 3199;
+let dir = '';
+let child: ReturnType<typeof spawn> | undefined;
+
+afterAll(async () => {
+  if (child?.pid) {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* już nie żyje */ }
+  }
+  if (dir) await fs.rm(dir, { recursive: true, force: true });
+});
+
+describe('smoke: projekt Astro startuje', () => {
+  it('odpowiada 200 na porcie przydzielonym przez wrapper', async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astro-smoke-'));
+    await TEMPLATES.astro.scaffold(dir, 'astro-smoke');
+
+    await execFileAsync('npm', ['install', '--no-audit', '--no-fund'], { cwd: dir });
+
+    child = spawn('npm', ['run', 'dev', '--', '--port', String(PORT)], {
+      cwd: dir,
+      detached: true,
+      stdio: 'ignore',
+    });
+
+    let status = 0;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      try {
+        const response = await fetch(`http://127.0.0.1:${PORT}/`);
+        status = response.status;
+        if (status === 200) break;
+      } catch { /* jeszcze nie wstał */ }
+    }
+
+    expect(status).toBe(200);
+  }, 180_000);
+});
 ```
-Expected: `200`. Jeśli `tsx` nie jest dostępny, wygeneruj katalog jednorazowym testem Vitesta wypisującym ścieżkę (`console.log(dir)`) i wykonaj resztę kroków na niej. Wklej kod odpowiedzi i wersję Astro do raportu. Posprzątaj `$TMP` po próbie.
+
+Run: `npx vitest run tests/templates/astro-smoke.test.ts`
+Expected: PASS. Wklej do raportu wersję Astro odczytaną w kroku 1 i wynik testu.
+
+Po zielonym przebiegu **usuń ten plik** — `npm install` w teście to kilkadziesiąt sekund i sieć, więc nie ma go w stałym zestawie. W raporcie zadania zapisz, że został usunięty po przejściu.
 
 - [ ] **Step 8: Sprawdź typy, testy i build**
 
@@ -3001,10 +3247,11 @@ Expected: zero błędów, testy zielone, build przechodzi
 git add lib/templates/astro.ts lib/templates/index.ts tests/templates/registry.test.ts
 git commit -m "feat: add an Astro project template
 
-Second entry in the registry, with its own dev wrapper binding all
-interfaces and its own CLAUDE.md so the agent works to Astro's
-conventions instead of Next's. The registry map is now complete, so the
-placeholder cast is gone."
+Second entry in the registry, sharing the generated dev wrapper and
+carrying its own CLAUDE.md so the agent works to Astro's conventions
+instead of Next's. Verified by installing the scaffold and serving it,
+not just by reading the generated files. The registry map is now
+complete, so the placeholder cast is gone."
 ```
 
 ### Task 18: Podłącz `templateType` od bazy do UI (decyzja 8, znalezisko H)
@@ -3015,85 +3262,32 @@ placeholder cast is gone."
 - Modify: `lib/serializers/project.ts`
 - Modify: `components/modals/CreateProjectModal.tsx`
 - Modify: `types/backend/project.ts`, `types/shared/project.ts`
-- Create: `tests/services/create-project-input.test.ts`
 
 **Interfaces:**
-- Consumes: `TemplateId`, `TEMPLATE_LIST`, `getTemplate` (Task 16, 17).
-- Produces:
-  ```ts
-  export function normalizeTemplateType(value?: string | null): TemplateId;  // lib/templates/index.ts
-  ```
-  `CreateProjectInput` zyskuje `templateType?: TemplateId`.
+- Consumes: `normalizeTemplateType`, `TEMPLATE_META_LIST`, `DEFAULT_TEMPLATE_ID` z `lib/templates/meta.ts` (Task 16), `getTemplate` z `lib/templates` (Task 16, 17).
+- Produces: `CreateProjectInput` zyskuje `templateType?: TemplateId`. Ostatnie zadanie fazy 4.
+
+To zadanie jest wyłącznie podłączeniem istniejących części — `normalizeTemplateType` powstało w Task 16 i ma tam swoje testy. **Nie dostaje nowego testu jednostkowego**: nie ma tu nowej logiki, jest przepływ wartości od modala do scaffoldu. Weryfikuje go dowód z uruchomienia w kroku 3, `type-check` i `build`.
 
 Dziś `templateType` jest zapisywany na sztywno jako `'nextjs'` i nigdzie nie czytany, a typ `TemplateType` jest zdublowany w dwóch plikach z wartościami, których nie ma (`react`, `vue`).
 
-- [ ] **Step 1: Napisz failujący test**
-
-Utwórz `tests/services/create-project-input.test.ts`:
-
-```ts
-import { describe, expect, it } from 'vitest';
-import { normalizeTemplateType } from '@/lib/templates';
-
-describe('normalizeTemplateType', () => {
-  it('przepuszcza znane template\'y', () => {
-    expect(normalizeTemplateType('nextjs')).toBe('nextjs');
-    expect(normalizeTemplateType('astro')).toBe('astro');
-  });
-
-  it('znosi różnice w wielkości liter i spacje', () => {
-    expect(normalizeTemplateType(' Astro ')).toBe('astro');
-  });
-
-  it('nieznane i puste schodzą do nextjs', () => {
-    expect(normalizeTemplateType('vue')).toBe('nextjs');
-    expect(normalizeTemplateType(null)).toBe('nextjs');
-    expect(normalizeTemplateType(undefined)).toBe('nextjs');
-  });
-});
-```
-
-- [ ] **Step 2: Uruchom test i potwierdź, że failuje**
-
-Run: `npx vitest run tests/services/create-project-input.test.ts`
-Expected: FAIL — `normalizeTemplateType is not a function`
-
-- [ ] **Step 3: Dodaj normalizator do rejestru**
-
-W `lib/templates/index.ts` dodaj:
-
-```ts
-export function normalizeTemplateType(value?: string | null): TemplateId {
-  const candidate = value?.trim().toLowerCase();
-  if (candidate && candidate in TEMPLATES) {
-    return candidate as TemplateId;
-  }
-  return DEFAULT_TEMPLATE_ID;
-}
-```
-
-- [ ] **Step 4: Uruchom test i potwierdź, że przechodzi**
-
-Run: `npx vitest run tests/services/create-project-input.test.ts`
-Expected: PASS — 3 testy
-
-- [ ] **Step 5: Zapisuj wybrany template**
-
-- `types/backend/project.ts` i `types/shared/project.ts` — usuń zdublowany `export type TemplateType = 'nextjs' | 'react' | 'vue' | 'custom';` z oba plików i zamiast tego reeksportuj jedną definicję: `export type { TemplateId as TemplateType } from '@/lib/templates';`. Pole `templateType?: TemplateType` zostaje.
+- [ ] **Step 1: Zapisuj wybrany template**
+- `types/backend/project.ts` i `types/shared/project.ts` — usuń zdublowany `export type TemplateType = 'nextjs' | 'react' | 'vue' | 'custom';` z oba plików i zamiast tego reeksportuj jedną definicję: `export type { TemplateId as TemplateType } from '@/lib/templates/meta';` (z `meta`, nie z `index` — reeksport typu jest bezpieczny, ale trzymamy jedno źródło dla obu stron). Pole `templateType?: TemplateType` zostaje.
 - `types/backend/project.ts` — dodaj `templateType?: TemplateType;` do `CreateProjectInput`, jeśli go tam nie ma.
-- `lib/services/project.ts` — w `createProject` zamień `templateType: 'nextjs',` na `templateType: normalizeTemplateType(input.templateType),` i dodaj import `import { normalizeTemplateType } from '@/lib/templates';`.
+- `lib/services/project.ts` — w `createProject` zamień `templateType: 'nextjs',` na `templateType: normalizeTemplateType(input.templateType),` i dodaj import `import { normalizeTemplateType } from '@/lib/templates/meta';`.
 - `app/api/projects/route.ts` — w budowanym `input` dodaj `templateType: normalizeTemplateType(body.templateType ?? body.template_type),`.
 - `lib/serializers/project.ts` — dopisz `templateType` do serializowanego kształtu, żeby UI mógł go pokazać.
 
-- [ ] **Step 6: Dodaj wybór template'u w modalu**
+- [ ] **Step 2: Dodaj wybór template'u w modalu**
 
 W `components/modals/CreateProjectModal.tsx`:
-1. Dodaj import `import { TEMPLATE_LIST, DEFAULT_TEMPLATE_ID } from '@/lib/templates';`
+1. Dodaj import `import { TEMPLATE_META_LIST, DEFAULT_TEMPLATE_ID } from '@/lib/templates/meta';`
+   **Importuj z `meta`, nigdy z `@/lib/templates`.** To komponent kliencki; rejestr ciągnie za sobą scaffold, ten `fs/promises`, a webpackowy fallback w `next.config.js` pokrywa tylko `fs`, `path` i `os` — build padnie na `Module not found: Can't resolve 'fs/promises'`.
 2. Dodaj stan `const [selectedTemplate, setSelectedTemplate] = useState<string>(DEFAULT_TEMPLATE_ID);`
-3. W miejscu, gdzie był dropdown CLI (usunięty w Task 6), wstaw wybór template'u: prosty rząd przycisków po jednym na `TEMPLATE_LIST`, z `label` jako treścią i `description` w `title`. Aktywny wyróżnij tak, jak wyróżniany był aktywny CLI — nie wprowadzaj nowego języka wizualnego.
+3. W miejscu, gdzie był dropdown CLI (usunięty w Task 6), wstaw wybór template'u: prosty rząd przycisków po jednym na `TEMPLATE_META_LIST`, z `label` jako treścią i `description` w `title`. Aktywny wyróżnij tak, jak wyróżniany był aktywny CLI — nie wprowadzaj nowego języka wizualnego.
 4. W ciele żądania POST dodaj `templateType: selectedTemplate,`.
 
-- [ ] **Step 7: Dowód z uruchomienia — projekt z Astro**
+- [ ] **Step 3: Dowód z uruchomienia — projekt z Astro**
 
 Run: `npm run dev`, utwórz nowy projekt z template'em Astro i promptem „dodaj stronę /about z nagłówkiem About".
 Expected:
@@ -3102,12 +3296,12 @@ Expected:
 - agent tworzy `src/pages/about.astro` (a nie `app/about/page.tsx`) — dowód, że przeczytał `CLAUDE.md` template'u.
 Wklej do raportu listing katalogu projektu i ścieżkę pliku, który agent utworzył.
 
-- [ ] **Step 8: Sprawdź typy, testy i build**
+- [ ] **Step 4: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
-Expected: zero błędów, testy zielone, build przechodzi
+Expected: zero błędów, testy zielone, build przechodzi. Build jest tu bramką kluczową — złapie import rejestru z komponentu klienckiego, gdyby przeszedł mimo ostrzeżenia w kroku 2.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add -A
@@ -3128,7 +3322,8 @@ which scaffold runs, and has one definition."
 **Files:**
 - Create: `Dockerfile`
 - Create: `.dockerignore`
-- Modify: `next.config.js` (tryb `standalone`, jeśli nie jest ustawiony)
+
+`next.config.js` **nie jest ruszany**: `output: 'standalone'` jest tam od dawna (linia 5). Obraz nie korzysta ze standalone — startuje przez `next start` z pełnym `node_modules`, bo tak samo robi `electron-builder` i nie mnożymy trybów uruchamiania. Standalone zostaje dla buildu desktopowego.
 
 **Interfaces:**
 - Consumes: nic.
@@ -3156,17 +3351,7 @@ tests
 vitest.config.ts
 ```
 
-- [ ] **Step 2: Upewnij się, że Next buduje standalone**
-
-W `next.config.js` sprawdź, czy jest `output: 'standalone'`. Jeśli nie, dodaj do obiektu konfiguracji:
-
-```js
-  output: 'standalone',
-```
-
-(`package.json` → `build.files` już odwołuje się do `.next/standalone`, więc tryb jest oczekiwany przez electron-buildera.)
-
-- [ ] **Step 3: Napisz `Dockerfile`**
+- [ ] **Step 2: Napisz `Dockerfile`**
 
 Utwórz `Dockerfile`:
 
@@ -3198,13 +3383,15 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git python3 bash ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=deps /app/node_modules ./node_modules
+# node_modules z etapu BUILD, nie deps: `prisma generate` zapisuje wygenerowany
+# klient do node_modules, a `npm ci --ignore-scripts` w deps go nie tworzy.
+# Kopiowanie z deps daje obraz, w którym pierwszy dostęp do bazy leci
+# "@prisma/client did not initialize yet".
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/scripts ./scripts
-COPY --from=build /app/lib ./lib
 
 # Katalog danych: projekty użytkownika, baza i ustawienia globalne.
 RUN mkdir -p /data/projects
@@ -3215,26 +3402,30 @@ EXPOSE 3100-3131
 
 # Dev-servery projektów są procesami potomnymi tego kontenera, więc PID 1
 # musi je zbierać. `init: true` w compose zapewnia reaper.
-CMD ["sh", "-c", "npx prisma db push --skip-generate && npx next start --port 3000 --hostname 0.0.0.0"]
+# --accept-data-loss: `db push` na SQLite przebudowuje tabele przy drifcie
+# schematu i bez flagi czeka na interaktywne potwierdzenie, którego w
+# kontenerze nikt nie udzieli.
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && npx next start --port 3000 --hostname 0.0.0.0"]
 ```
 
-- [ ] **Step 4: Zbuduj obraz**
+- [ ] **Step 3: Zbuduj obraz**
 
 Run: `docker build -t claudable:dev .`
 Expected: build kończy się sukcesem. Jeśli `npm run build` w etapie `build` failuje na brakującym `.env`, dodaj przed `npm run build` linię `RUN node scripts/setup-env.js || true` i zanotuj to w raporcie.
 
-- [ ] **Step 5: Sprawdź, co jest w obrazie**
+- [ ] **Step 4: Sprawdź, co jest w obrazie**
 
 Run:
 ```bash
 docker run --rm claudable:dev sh -c "git --version && python3 --version && bash --version | head -1 && node --version"
+docker run --rm claudable:dev sh -c "ls node_modules/.prisma/client/ | head -5"
 ```
-Expected: wszystkie cztery wersje wypisane. Wklej wynik do raportu.
+Expected: cztery wersje wypisane, a drugi listing pokazuje wygenerowanego klienta Prismy (m.in. `index.js`, `schema.prisma`). Pusty listing znaczy, że `node_modules` przyszło z niewłaściwego etapu. Wklej oba wyniki do raportu.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add Dockerfile .dockerignore next.config.js
+git add Dockerfile .dockerignore
 git commit -m "build: add a container image
 
 Multi-stage build over node:22-slim. The runtime layer carries git for
@@ -3248,8 +3439,11 @@ fail silently. Project data lives on a /data volume."
 **Files:**
 - Create: `docker-compose.yml`
 - Create: `.env.docker.example`
+- Create: `tests/utils/port-allocation.test.ts`
 - Modify: `scripts/setup-env.js` (górna granica zakresu portów)
-- Modify: `.env` (zakres portów)
+- Modify: `lib/utils/ports.ts`, `lib/services/preview.ts`, `lib/config/constants.ts` (ta sama granica)
+
+**`.env` i `.env.local` NIE są commitowane** — są w `.gitignore` (linie 29-30) i zawierają `ENCRYPTION_KEY`. Zmień w nich zakres portów lokalnie, żeby środowisko dev się zgadzało, ale nie dodawaj ich do commitu; `git add .env` albo padnie na ignorowanej ścieżce, albo — z `-f` — wypchnie sekret do repozytorium.
 
 **Interfaces:**
 - Consumes: obraz z Task 19, `resolveClaudeConfigDir` z Task 13.
@@ -3257,11 +3451,68 @@ fail silently. Project data lives on a /data volume."
 
 - [ ] **Step 1: Zwęź zakres portów do publikowalnego**
 
-W `scripts/setup-env.js` znajdź domyślną górną granicę zakresu preview (obecnie `3999`) i zmień ją na `3131`. To samo w `.env` i `.env.local`, jeśli tam są wpisane. Zakres 32 portów wynika z decyzji 5: publikowanie 900 portów wydłuża start kontenera do absurdu.
+Zakres 32 portów wynika z decyzji 5: publikowanie 900 portów wydłuża start kontenera do absurdu.
 
-Sprawdź też `lib/utils/ports.ts` i `lib/config/constants.ts` — jeśli mają własny fallback `3999`, zmień na `3131`, żeby wartość była jedna.
+Granica jest wpisana w **czterech** miejscach i wszystkie muszą się zgadzać:
+- `scripts/setup-env.js` — generator plików env
+- `lib/utils/ports.ts` — `resolveDefaultBounds()` (~linia 23)
+- `lib/services/preview.ts` — **drugi, niezależny parser** `resolvePreviewBounds()` (~linia 195). Łatwo go przeoczyć: czyta te same zmienne środowiskowe, ale ma własny fallback.
+- `lib/config/constants.ts` — `PREVIEW_CONFIG.FALLBACK_PORT_END`
 
-- [ ] **Step 2: Napisz `docker-compose.yml`**
+Zmień też lokalnie w `.env` i `.env.local` (bez commitowania — patrz Files).
+
+- [ ] **Step 2: Napisz test wyczerpania zakresu portów**
+
+Decyzja 14 obiecuje pokrycie alokacji portu, a ryzyko 3 wymaga czytelnego błędu przy wyczerpaniu slotów. Przy 32 miejscach zamiast 900 to przestaje być teoretyczne.
+
+Utwórz `tests/utils/port-allocation.test.ts`:
+
+```ts
+import net from 'node:net';
+import { afterEach, describe, expect, it } from 'vitest';
+import { findAvailablePort } from '@/lib/utils/ports';
+
+const servers: net.Server[] = [];
+
+const occupy = (port: number) =>
+  new Promise<void>((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      servers.push(server);
+      resolve();
+    });
+  });
+
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) => new Promise((r) => server.close(r))));
+});
+
+describe('findAvailablePort', () => {
+  it('zwraca wolny port z zakresu', async () => {
+    const port = await findAvailablePort(34100, 34103);
+    expect(port).toBeGreaterThanOrEqual(34100);
+    expect(port).toBeLessThanOrEqual(34103);
+  });
+
+  it('pomija port zajęty', async () => {
+    await occupy(34110);
+    const port = await findAvailablePort(34110, 34111);
+    expect(port).toBe(34111);
+  });
+
+  it('rzuca czytelny błąd, gdy cały zakres jest zajęty', async () => {
+    await occupy(34120);
+    await occupy(34121);
+    await expect(findAvailablePort(34120, 34121)).rejects.toThrow(/34120|34121|range|available/i);
+  });
+});
+```
+
+Run: `npx vitest run tests/utils/port-allocation.test.ts`
+Expected: PASS. Jeśli trzeci test failuje, bo komunikat nie nazywa zakresu, popraw treść błędu w `lib/utils/ports.ts:113` tak, żeby zawierał granice — użytkownik z 32 zajętymi slotami musi z logu wiedzieć, co się stało.
+
+- [ ] **Step 3: Napisz `docker-compose.yml`**
 
 Utwórz `docker-compose.yml`:
 
@@ -3272,75 +3523,117 @@ services:
     image: claudable:dev
     # Dev-servery projektów są dziećmi tego kontenera — PID 1 musi je zbierać.
     init: true
+    # KLUCZOWE: bez tego kontener działa jako root i po pierwszym odświeżeniu
+    # tokenu OAuth pliki w zamontowanym katalogu .claude po stronie HOSTA
+    # zmieniają właściciela na root — a wtedy `claude` w twoim terminalu
+    # przestaje działać. Ustaw HOST_UID/HOST_GID w .env.docker.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file:
+      - .env.docker
     ports:
       - "3000:3000"
       - "3100-3131:3100-3131"
     environment:
+      HOME: /home/app
       PROJECTS_DIR: /data/projects
       DATABASE_URL: file:/data/cc.db
       SETTINGS_DIR: /data
       PREVIEW_PORT_START: "3100"
       PREVIEW_PORT_END: "3131"
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
       # Katalog, z którego agent bierze CLAUDE.md, skille, hooki i MCP —
       # dokładnie tak jak `claude` w terminalu.
-      CLAUDE_CONFIG_DIR: /root/.claude
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ustaw ENCRYPTION_KEY w .env}
+      CLAUDE_CONFIG_DIR: /home/app/.claude
     volumes:
-      # Projekty, baza i ustawienia globalne. Podmień CLAUDABLE_DATA, żeby
-      # trzymać projekty gdzie indziej.
+      # Projekty, baza i ustawienia globalne.
       - ${CLAUDABLE_DATA:-./data}:/data
       # Konfiguracja agenta. Musi być zapisywalna: odświeżenie tokenu OAuth
       # pisze do .credentials.json, a przy :ro agent padnie po jego wygaśnięciu.
-      - ${CLAUDABLE_CLAUDE_DIR:-${HOME}/.claude}:/root/.claude
-      # Jeśli pliki w katalogu wyżej są symlinkami (np. do dotfiles), ich cel
-      # musi być widoczny pod tą samą ścieżką absolutną, inaczej zawisną.
-      # Zostaw domyślne /dev/null, gdy symlinków nie ma.
-      - ${CLAUDABLE_SYMLINK_ROOT:-/dev/null}:${CLAUDABLE_SYMLINK_ROOT:-/dev/null}:ro
+      - ${CLAUDABLE_CLAUDE_DIR:-${HOME}/.claude}:/home/app/.claude
 ```
 
-- [ ] **Step 3: Napisz przykładowy plik zmiennych**
+`ENCRYPTION_KEY` wchodzi przez `env_file`, nie przez interpolację — jeden plik `.env.docker` jest jedynym źródłem sekretów i nie ma go w repozytorium.
+
+Jeśli pliki w zamontowanym katalogu `.claude` są symlinkami wychodzącymi poza niego (typowe przy dotfiles), **nie** obchodź tego trikiem w głównym compose. Utwórz `docker-compose.override.yml` (Docker Compose wczytuje go automatycznie i nie jest commitowany):
+
+```yaml
+services:
+  claudable:
+    volumes:
+      - /absolutna/sciezka/do/dotfiles:/absolutna/sciezka/do/dotfiles:ro
+```
+
+Ścieżka musi być identyczna w kontenerze i na hoście, bo symlink jest absolutny. Dopisz `docker-compose.override.yml` do `.gitignore`.
+
+- [ ] **Step 4: Napisz przykładowy plik zmiennych**
 
 Utwórz `.env.docker.example`:
 
 ```bash
-# Skopiuj do .env i uzupełnij przed `docker compose up`.
+# Skopiuj do .env.docker i uzupełnij przed `docker compose up`.
+# Ten plik NIE jest commitowany.
 
 # Klucz szyfrowania zmiennych środowiskowych projektów (32 bajty hex).
 # Wygeneruj: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ENCRYPTION_KEY=
 
+# Twoje UID i GID. Bez nich kontener działa jako root i przejmie na własność
+# pliki w zamontowanym katalogu .claude, psując `claude` w twoim terminalu.
+# Odczytaj: id -u ; id -g
+HOST_UID=1000
+HOST_GID=1000
+
+# Adres, pod którym otwierasz aplikację. Uwaga: NEXT_PUBLIC_* jest zapiekane
+# w `next build`, więc zmiana tutaj nie wpłynie na kod po stronie przeglądarki
+# — po zmianie przebuduj obraz.
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
 # Gdzie trzymać projekty, bazę i ustawienia. Domyślnie ./data w repo.
 # CLAUDABLE_DATA=/srv/claudable-data
 
-# Katalog konfiguracyjny agenta: CLAUDE.md, skille, hooki, MCP, poświadczenia.
-# Domyślnie ~/.claude, czyli to samo, co widzi `claude` w terminalu.
+# Katalog konfiguracyjny agenta: CLAUDE.md, skille, subagenci, hooki, MCP,
+# poświadczenia. Domyślnie ~/.claude, czyli to samo, co widzi `claude`
+# w terminalu. Przestaw, żeby dać instancji własny, dostosowany katalog.
 # CLAUDABLE_CLAUDE_DIR=/srv/claudable-claude-home
-
-# Ustaw TYLKO jeśli pliki w katalogu wyżej są symlinkami wychodzącymi poza
-# niego — podaj wspólny katalog docelowy, np. /home/ty/dotfiles.
-# CLAUDABLE_SYMLINK_ROOT=/home/ty/dotfiles
 ```
 
-- [ ] **Step 4: Uruchom stack**
+Dopisz do `.gitignore`:
+
+```
+.env.docker
+docker-compose.override.yml
+```
+
+- [ ] **Step 5: Uruchom stack**
 
 Run:
 ```bash
-cp -n .env.docker.example .env.docker 2>/dev/null || true
+cp -n .env.docker.example .env.docker
+sed -i "s/^HOST_UID=.*/HOST_UID=$(id -u)/; s/^HOST_GID=.*/HOST_GID=$(id -g)/" .env.docker
+node -e "console.log('ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('hex'))" >> .env.docker
 docker compose up --build -d
 docker compose logs --tail 40 claudable
 ```
-Expected: `prisma db push` przechodzi, Next startuje na 3000. Jeśli brakuje `ENCRYPTION_KEY`, compose zatrzyma się z czytelnym komunikatem — to zamierzone.
+Expected: `prisma db push` przechodzi, Next startuje na 3000.
 
-- [ ] **Step 5: Dowód — parytet agenta w kontenerze**
+Sprawdź od razu, że kontener nie jest rootem — to zabezpieczenie twojego katalogu `.claude`:
+```bash
+docker compose exec claudable id
+```
+Expected: `uid=` równe twojemu `id -u`, nie `0`.
+
+- [ ] **Step 6: Dowód — parytet agenta w kontenerze**
 
 Run: otwórz `http://localhost:3000`, utwórz projekt i wyślij prompt. Potem:
 ```bash
 docker compose logs claudable | grep -A 20 "Session initialized"
 ```
-Expected w payloadzie: `cwd` = `/data/projects/<id>`, `skills` zawiera skille z zamontowanego katalogu, `mcpServers` zawiera serwery z jego konfiguracji, `agents` zawiera definicje z `agents/*.md`. Wklej cały payload do raportu. Puste `skills` przy niepustym `skills/` po stronie hosta = wiszące symlinki: ustaw `CLAUDABLE_SYMLINK_ROOT` i powtórz.
+Expected w payloadzie: `cwd` = `/data/projects/<id>`, `skills` zawiera skille z zamontowanego katalogu, `agents` zawiera definicje z `agents/*.md`, a każdy wpis w `mcpServers` ma **`status: "connected"`** — nie tylko istnieje. Niepusta lista dowodzi jedynie, że pliki się wczytały; `status` dowodzi, że serwer naprawdę wstał w kontenerze.
 
-- [ ] **Step 6: Dowód — preview dosięgalne z hosta**
+Osobno udowodnij, że hooki się **wykonują**, a nie tylko wczytują — hook bez interpretera albo z odwołaniem do ścieżki hosta, której w kontenerze nie ma, milczy. Podłóż w katalogu projektu `.claude/settings.json` z hookiem `PreToolUse` na `Write`, który zwraca `permissionDecision: "deny"`, poproś agenta o utworzenie pliku i pokaż w logach, że narzędzie zostało zablokowane. Usuń hook po próbie.
+
+Wklej do raportu: cały payload `init`, statusy serwerów MCP i dowód odpalenia hooka. Puste `skills` przy niepustym `skills/` po stronie hosta = wiszące symlinki: dodaj `docker-compose.override.yml` z katalogiem docelowym i powtórz.
+
+- [ ] **Step 7: Dowód — preview dosięgalne z hosta**
 
 Run:
 ```bash
@@ -3349,7 +3642,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3100/
 (albo port, który przydzielił PreviewManager — odczytaj z logów)
 Expected: `200`. To sprawdza jednocześnie publikację zakresu portów i bindowanie na `0.0.0.0` z Task 16/17.
 
-- [ ] **Step 7: Dowód — dane przeżywają restart**
+- [ ] **Step 8: Dowód — dane przeżywają restart**
 
 Run:
 ```bash
@@ -3359,10 +3652,10 @@ curl -s http://localhost:3000/api/projects | head -c 300
 ```
 Expected: utworzony projekt jest na liście. Wklej fragment odpowiedzi do raportu.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add docker-compose.yml .env.docker.example scripts/setup-env.js .env lib/utils/ports.ts lib/config/constants.ts
+git add docker-compose.yml .env.docker.example .gitignore tests/utils/port-allocation.test.ts scripts/setup-env.js lib/utils/ports.ts lib/services/preview.ts lib/config/constants.ts
 git commit -m "build: run the stack from compose with a mapped projects volume
 
 One /data mount carries projects, the SQLite database and global
@@ -3380,8 +3673,14 @@ agent's .claude directory is a variable so it can be pointed anywhere."
 
 **Files:**
 - Modify: `app/api/chat/[project_id]/act/route.ts`
+- Modify: `app/api/assets/[project_id]/[filename]/route.ts`
 - Modify: `components/chat/ChatLog.tsx`
+- Modify: `app/page.tsx`
+- Modify: `app/[project_id]/chat/page.tsx`
+- Modify: `components/chat/ChatInput.tsx`
 - Modify: `lib/services/cli/claude.ts`
+
+Pięć plików ma logi `📸` — nie tylko trasa `act`. Grep w kroku 4 obejmuje wszystkie, więc lista plików musi się z nim zgadzać.
 
 **Interfaces:**
 - Consumes: nic.
@@ -3389,13 +3688,15 @@ agent's .claude directory is a variable so it can be pointed anywhere."
 
 Usuwamy wyłącznie logi diagnostyczne dodane przy debugowaniu konkretnych problemów. **Nie** usuwamy `console.error` z obsługi błędów ani logu `Session initialized` z Task 2 — ten jest celowym narzędziem dowodowym.
 
-- [ ] **Step 1: Usuń logi z trasy `act`**
+- [ ] **Step 1: Usuń logi z tras serwerowych**
 
-W `app/api/chat/[project_id]/act/route.ts` usuń oba bloki `console.log('📸 Creating message with attachments:', {...})` i `console.log('📸 Message created successfully:', {...})` w całości. Zostaw `console.warn`/`console.error` w blokach `catch`.
+W `app/api/assets/[project_id]/[filename]/route.ts` usuń bloki `console.log('📸 Asset serving request:', {...})`, `console.log('📸 Checking file path:', {...})` i `console.log('📸 Asset serving failed: ...')` — zostaw same zwracane odpowiedzi błędu. W `app/api/chat/[project_id]/act/route.ts` usuń oba bloki `console.log('📸 Creating message with attachments:', {...})` i `console.log('📸 Message created successfully:', {...})` w całości. Zostaw `console.warn`/`console.error` w blokach `catch`.
 
-- [ ] **Step 2: Usuń logi z `ChatLog.tsx`**
+- [ ] **Step 2: Usuń logi z warstwy klienckiej**
 
-Usuń: `console.log('[ChatLog] Loaded messages from API:', {...})`, pętlę `normalized.forEach` logującą `🖼️ DB loaded message with attachments`, `console.log('[ChatLog] Loaded ${...} messages')` oraz `console.log('🔄 [HandlerSetup] ...')`, jeśli jeszcze został po Task 8. Zostaw `console.debug` pollingu — jest za flagą poziomu i przydaje się przy diagnozie transportu.
+W `components/chat/ChatLog.tsx` usuń: `console.log('[ChatLog] Loaded messages from API:', {...})`, pętlę `normalized.forEach` logującą `🖼️ DB loaded message with attachments`, `console.log('[ChatLog] Loaded ${...} messages')` oraz `console.log('🔄 [HandlerSetup] ...')`, jeśli jeszcze został po Task 8. Zostaw `console.debug` pollingu — jest za flagą poziomu i przydaje się przy diagnozie transportu.
+
+W `app/page.tsx`, `app/[project_id]/chat/page.tsx` i `components/chat/ChatInput.tsx` usuń pozostałe `console.log` z emoji `📸` dotyczące załączników. Nie ruszaj `console.error` w blokach `catch`.
 
 - [ ] **Step 3: Przytnij log startowy adaptera**
 
@@ -3466,8 +3767,8 @@ Po „Quick Start" dodaj:
 ## Docker
 
 ```bash
-cp .env.docker.example .env
-# uzupełnij ENCRYPTION_KEY
+cp .env.docker.example .env.docker
+# uzupełnij ENCRYPTION_KEY, HOST_UID i HOST_GID
 docker compose up --build
 ```
 
@@ -3477,14 +3778,19 @@ Dwa mapowania mają znaczenie:
 
 - `CLAUDABLE_DATA` (domyślnie `./data`) → `/data` w kontenerze. Trzyma projekty,
   bazę SQLite i ustawienia globalne. Przestaw, żeby trzymać projekty poza repo.
-- `CLAUDABLE_CLAUDE_DIR` (domyślnie `~/.claude`) → `/root/.claude`. To z tego
+- `CLAUDABLE_CLAUDE_DIR` (domyślnie `~/.claude`) → `/home/app/.claude`. To z tego
   katalogu agent bierze `CLAUDE.md`, skille, subagentów, hooki i serwery MCP —
   dokładnie tak, jak `claude` uruchomiony w terminalu. Mount musi być
   zapisywalny, bo odświeżenie tokenu OAuth pisze do `.credentials.json`.
 
+Ustaw `HOST_UID` i `HOST_GID` na własne (`id -u`, `id -g`). Bez nich kontener
+działa jako root i po pierwszym odświeżeniu tokenu przejmie na własność pliki
+w zamontowanym katalogu `.claude`, psując `claude` w twoim terminalu.
+
 Jeśli pliki w tym katalogu są symlinkami wychodzącymi poza niego (typowe przy
-dotfiles), ustaw `CLAUDABLE_SYMLINK_ROOT` na wspólny katalog docelowy —
-inaczej symlinki zawisną i ustawienia po cichu nie wejdą.
+dotfiles), dodaj `docker-compose.override.yml` montujący katalog docelowy pod
+tą samą ścieżką absolutną — inaczej symlinki zawisną i ustawienia po cichu
+nie wejdą.
 ```
 
 - [ ] **Step 5: Dopisz sekcję o template'ach**
