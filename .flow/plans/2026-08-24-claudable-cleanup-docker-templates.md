@@ -896,7 +896,8 @@ Utwórz `tests/migration/legacy-purge.test.ts`. Test sprawdza **zachowanie** —
 
 ```ts
 import { describe, expect, it, vi } from 'vitest';
-// @ts-expect-error - skrypt migracji jest zwykłym CommonJS bez typów
+// Bez `@ts-expect-error`: `tsconfig.json` ma `allowJs: true`, więc ten import
+// rozwiązuje się bez błędu, a niepotrzebna dyrektywa sama jest błędem (TS2578).
 import { purgeLegacyProviders } from '../../scripts/migrate-drop-legacy.js';
 
 type Row = { provider: string };
