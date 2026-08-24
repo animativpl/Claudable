@@ -3846,6 +3846,8 @@ Run: otwórz `http://localhost:3000`, utwórz projekt i wyślij prompt. Potem:
 ```bash
 docker compose logs claudable | grep -A 20 "Session initialized"
 ```
+**Sprawdź najpierw, że `/data` jest zapisywalny dla użytkownika kontenera.** Skrypt backupu liczy katalog kopii z `path.dirname(dbPath)`, więc przy `DATABASE_URL=file:/data/cc.db` kopie lądują w `/data/backups` — czyli na zamontowanym wolumenie, a nie w warstwie obrazu. To zamierzone i warte zachowania, ale wymaga, żeby `user:` z compose miał prawo pisać w tym katalogu. Test: `docker compose exec claudable npm run db:backup` musi wyjść zerowo i utworzyć plik widoczny na hoście.
+
 Expected w payloadzie: `cwd` = `/data/projects/<id>`, `claudeCodeVersion` **identyczna** jak zgłaszana przez sesję na hoście (inaczej kontener uruchamia inne CLI, niż testowałeś), `apiKeySource` wskazujący na poświadczenia z mountu, `skills` i `slashCommands` z zamontowanego katalogu, `agents` z `agents/*.md`, a każdy wpis w `mcpServers` ma **`status: "connected"`** — nie tylko istnieje. Niepusta lista dowodzi jedynie, że pliki się wczytały; `status` dowodzi, że serwer naprawdę wstał w kontenerze.
 
 Osobno udowodnij, że hooki się **wykonują**, a nie tylko wczytują — hook bez interpretera albo z odwołaniem do ścieżki hosta, której w kontenerze nie ma, milczy. Podłóż w katalogu projektu `.claude/settings.json` z hookiem `PreToolUse` na `Write`, który zwraca `permissionDecision: "deny"`, poproś agenta o utworzenie pliku i pokaż w logach, że narzędzie zostało zablokowane. Usuń hook po próbie.
