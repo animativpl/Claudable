@@ -34,12 +34,15 @@ Ten dokument jest jedynym artefaktem bramki designu.
 | 8 | Zestaw template'ów | **Next.js + Astro**, rejestr rozszerzalny o jeden plik | Decyzja użytkownika. |
 | 9 | Kształt template'ów | **Rejestr w TS** (`lib/templates/`), nie katalogi plików ani `create-*-app` | Sekcja 3. |
 | 10 | Migracja bazy | **Wyczyścić schemat**: usunąć `preferredCli`, `activeCursorSessionId`, `fallbackEnabled`; usunąć wiersze `ProjectServiceConnection` dla `vercel`/`supabase`. Backup `data/cc.db` przed migracją. | Decyzja użytkownika. Kolumna, której nikt nie czyta, kłamie o tym, co aplikacja umie. |
-| 11 | Selektor modelu | **Zostaje** (Opus/Sonnet/Haiku), znika selektor CLI | Claude ma wiele modeli — to wybór, który dalej ma sens. Znika `lib/constants/{codex,cursor,qwen,glm}Models.ts` i warstwa `cliModels` sprowadza się do modeli Claude. |
+| 11 | Selektor modelu | **Zostaje**, znika selektor CLI | Claude ma wiele modeli — to wybór, który dalej ma sens. Znika `lib/constants/{codex,cursor,qwen,glm}Models.ts` i warstwa `cliModels` sprowadza się do modeli Claude. Lista modeli — decyzja 17. |
 | 12 | `/api/settings/cli-status` | **Przerobić na sprawdzenie poświadczeń**, nie binarki | `@anthropic-ai/claude-agent-sdk` ma własny bundlowany `cli.js` i nie potrzebuje globalnego `claude` na PATH. Obecny `claude --version` sprawdza rzecz nieistotną: może zawieść przy działającym SDK i odwrotnie. Nowy check pyta o obecność `$CLAUDE_CONFIG_DIR/.credentials.json` (domyślnie `~/.claude`). |
 | 13 | Zakres naprawy flickera | **Chirurgicznie**, bez dekompozycji `ChatLog.tsx`/`page.tsx` | Przyczyna jest punktowa (sekcja 5, znalezisko B). Rozbijanie 3200-linijkowych plików to osobna robota i nie jest tym, o co proszono. |
 | 14 | Testy | **Vitest + testy logiki czystej**, którą ta zmiana i tak rusza | Repo nie ma ani jednego testu ani runnera, a workflow wymaga dowodu. Pokrycie: rejestr template'ów, scaffold, alokacja portów preview, normalizacja modeli, rekoncyliacja osieroconych `UserRequest`. Flicker i Docker weryfikowane odpaleniem. |
 | 15 | Kształt dostawy | **Jedna gałąź, plan w fazach**: usunięcia → flicker i bugi → template'y i Docker | Decyzja użytkownika. Usunięcia idą pierwsze, bo kurczą powierzchnię, którą reszta dotyka — zwłaszcza `ChatLog.tsx`, gdzie spotykają się WS i flicker. |
 | 16 | Izolacja agenta od globalnych ustawień hosta | **Zostaje domyślna izolacja SDK** | SDK bez `settingSources` nie ładuje ustawień z dysku ("SDK isolation mode", `sdk.d.ts:1006`). Mount `~/.claude` daje więc wyłącznie poświadczenia — globalny `CLAUDE.md` i hooki użytkownika nie wchodzą do kontekstu agenta budującego aplikację. Nie zmieniamy tego. |
+| 17 | Lista modeli Claude | **Opus 5 (`claude-opus-5`), Sonnet 5 (`claude-sonnet-5`), Haiku 4.5 (`claude-haiku-4-5`)**, domyślny **Sonnet 5**. Generacja 4.6 schodzi do `aliases`. | Polecenie użytkownika. Zejście 4.6 do aliasów, a nie do kosza, to własna konwencja tego pliku — tak już leżą `claude-opus-4-5`, `claude-sonnet-4-5` i trzy generacje wcześniej. Dzięki temu wiersze w bazie trzymające `claude-sonnet-4-6` dalej się rozwiązują, tylko na nowszy model. |
+| 18 | Kanoniczne ID Haiku | **`claude-haiku-4-5`** bez sufiksu daty; `claude-haiku-4-5-20251001` zostaje aliasem | Commit `2634077` („use correct Claude API model IDs (without date suffix)") ściął sufiksy, ale Haiku został z datą — plik jest niespójny sam ze sobą. ID modeli są kompletne w formie bez daty i sufiksów się do nich nie dokleja. Stara forma jako alias, więc istniejące wiersze w bazie nadal się rozwiązują. |
+| 19 | `maxOutputTokens` agenta | **32000** zamiast 4000 (dalej nadpisywalne przez `CLAUDE_CODE_MAX_OUTPUT_TOKENS`) | Znalezisko L. |
 
 ## 3. Rozważane podejścia — kształt template'ów
 
@@ -88,6 +91,9 @@ Kasowane: `lib/services/cli/{codex,cursor,qwen,glm}.ts`,
 dotyczącej innych agentów. `lib/constants/cliModels.ts` zwija się do modeli
 Claude. `Project.preferredCli`, `activeCursorSessionId`, `fallbackEnabled`
 wypadają ze schematu; `activeClaudeSessionId` zostaje.
+`lib/constants/claudeModels.ts` dostaje aktualną listę: `claude-opus-5`,
+`claude-sonnet-5`, `claude-haiku-4-5`, `CLAUDE_DEFAULT_MODEL` na Sonnet 5,
+generacja 4.6 przeniesiona do `aliases` (decyzje 17-18).
 
 ### 4.3 Usunięcie Vercel i Supabase
 Kasowane: `lib/services/{vercel,supabase}.ts`, `app/api/vercel/**`,
@@ -161,6 +167,8 @@ Projekty bez `templateType` (istniejące wiersze) czytają się jako `nextjs`.
 | I | Niska | README obiecuje `npm run db:backup`, `db:reset`, `clean` — takich skryptów nie ma w `package.json` | `README.md` |
 | J | Niska | Debug `console.log` w gorących ścieżkach (`📸` przy każdej wiadomości, `[ChatLog]` przy każdym loadzie historii) | `act/route.ts:~300`, `ChatLog.tsx:~1895` |
 | K | Niska | Preview binduje domyślny interfejs — przy publikowanych portach Dockera trzeba `-H 0.0.0.0` (Next) / `--host` (Astro) | wchodzi do `devCommand` template'u |
+| L | Średnia | `maxOutputTokens` twardo 4000, gdy nie ma zmiennej środowiskowej — dla agenta zapisującego całe pliki to ciasne: odpowiedź urywa się w środku zapisu. Modele z decyzji 17 unoszą 128K. | `lib/services/cli/claude.ts:585` |
+| M | Niska | Komentarz przy `selectedModel` w schemacie wymienia nieistniejące już ID modeli; README podaje „Context: Native 200k tokens" dla Claude Code, choć Opus 5 i Sonnet 5 mają 1M | `prisma/schema.prisma:40`, `README.md` |
 
 **Świadomie zostawione poza zakresem** (zgłoszone, nie ruszane):
 - `ServiceToken.token` trzymany plain-text — świadomy trade-off „narzędzie
