@@ -20,6 +20,7 @@ import {
   markUserRequestAsFailed,
 } from '@/lib/services/user-requests';
 import { buildClaudeQueryOptions } from './claude-options';
+import { summarizeInitPayload } from './init-payload';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -937,7 +938,8 @@ export async function executeClaude(
       if (message.type === 'system' && message.subtype === 'init') {
         // Initialize session
         currentSessionId = message.session_id;
-        console.log(`[ClaudeService] Session initialized: ${currentSessionId}`);
+        const initSummary = summarizeInitPayload(message);
+        console.log('[ClaudeService] Session initialized:', JSON.stringify(initSummary, null, 2));
 
         // Save session ID to project
         if (currentSessionId) {
