@@ -758,6 +758,7 @@ use them, but they no longer branch."
 - Modify: `types/backend/cli.ts`, `types/backend/project.ts`
 - Modify: `components/settings/AIAssistantSettings.tsx`, `components/settings/GlobalSettings.tsx`, `components/settings/GeneralSettings.tsx`
 - Delete: `components/modals/CreateProjectModal.tsx` (martwy kod — patrz niżej)
+- Modify: `components/settings/ServiceSettings.tsx` (jedna rzecz — patrz krok 4)
 - Modify: `components/chat/ChatInput.tsx`
 - Modify: `app/page.tsx`, `app/[project_id]/chat/page.tsx`
 - Modify: `app/api/chat/[project_id]/cli-preference/route.ts` (usunięcie trasy)
@@ -799,11 +800,15 @@ W `app/page.tsx` usuń import z linii 5 oraz deklarację `const [showCreate, set
 
 Modal był jedynym konsumentem części importów w `app/page.tsx` (np. `createCliStatusFallback`, typy `CLIOption`/`CLIStatus`). Usuń te, które po nim osierocieją; `tsc` z kroku 7 wskaże każdy.
 
-- [ ] **Step 4: Usuń wskaźniki CLI z czatu i listy projektów**
+- [ ] **Step 4: Usuń zdarzenie osierocone przez Task 4**
+
+W `components/settings/ServiceSettings.tsx:126` usuń `window.dispatchEvent(new CustomEvent('services-updated'))` razem z komentarzem nad nim. Jedynego słuchacza tego zdarzenia (`app/[project_id]/chat/page.tsx`) usunęło Task 4 przy wycinaniu pollerów wdrożeń — grep po całym drzewie pokazuje teraz jedno wystąpienie tej nazwy, czyli nadawcę bez odbiorcy. To dokładnie „usuń to, co Twoja zmiana osierociła"; przypisane tutaj, bo Task 4 zamknął się przed tym ustaleniem.
+
+- [ ] **Step 5: Usuń wskaźniki CLI z czatu i listy projektów**
 
 W `components/chat/ChatInput.tsx`, `app/page.tsx` i `app/[project_id]/chat/page.tsx` usuń badge'e i przełączniki CLI, `updatePreferredCli`, `handleCliChange`, `loadCliStatuses` oraz stan `cliStatuses`. Zostaw `handleModelChange` i `updateSelectedModel`, przestawiając ich wywołania `normalizeModelId(cli, model)` na `normalizeModelId(null, model)`.
 
-- [ ] **Step 5: Domknij typ statusu, który zostaje po usuniętych plikach**
+- [ ] **Step 6: Domknij typ statusu, który zostaje po usuniętych plikach**
 
 `app/api/settings/cli-status/route.ts` importuje `CLIStatus`. Jeśli `types/backend/cli.ts` bierze ten typ z usuwanego `types/cli.ts` albo `types/shared/cli.ts`, przenieś jego definicję do `types/backend/cli.ts` w zawężonej formie:
 
@@ -822,7 +827,7 @@ export type CLIStatus = { claude: CLIStatusEntry };
 
 Bez tego kroku `type-check` w kroku 7 padnie na zerwanym imporcie. Task 15 przepisuje tę trasę do końca, ale między tym zadaniem a Task 15 repozytorium musi się kompilować.
 
-- [ ] **Step 6: Dowiedź, że nie ma referencji**
+- [ ] **Step 7: Dowiedź, że nie ma referencji**
 
 Run:
 ```bash
@@ -836,12 +841,12 @@ grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" --include=*.ts --i
 ```
 Expected: brak wyników
 
-- [ ] **Step 7: Sprawdź typy, testy i build**
+- [ ] **Step 8: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
 Expected: zero błędów, testy zielone, build przechodzi
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -866,8 +871,8 @@ selection stays, since Claude has several."
 - Produces:
   ```ts
   // scripts/migrate-drop-legacy.js
-  module.exports = { LEGACY_PROVIDERS, purgeLegacyConnections, main };
-  // purgeLegacyConnections(client) => Promise<number>  — testowalne bez bazy
+  module.exports = { LEGACY_PROVIDERS, purgeLegacyProviders, main };
+  // purgeLegacyProviders(client) => Promise<{ connections: number; tokens: number }>
   ```
   Task 22 dokumentuje `db:backup` w README.
 
@@ -878,38 +883,56 @@ Utwórz `tests/migration/legacy-purge.test.ts`. Test sprawdza **zachowanie** —
 ```ts
 import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error - skrypt migracji jest zwykłym CommonJS bez typów
-import { purgeLegacyConnections } from '../../scripts/migrate-drop-legacy.js';
+import { purgeLegacyProviders } from '../../scripts/migrate-drop-legacy.js';
 
-/** Minimalna atrapa Prismy: trzyma wiersze w pamięci i realizuje deleteMany. */
-const fakeClient = (rows: { provider: string }[]) => ({
-  rows,
-  projectServiceConnection: {
-    async deleteMany({ where }: { where: { provider: { in: string[] } } }) {
-      const before = rows.length;
-      const kept = rows.filter((row) => !where.provider.in.includes(row.provider));
-      rows.length = 0;
-      rows.push(...kept);
-      return { count: before - rows.length };
-    },
+type Row = { provider: string };
+
+/** Minimalna atrapa tabeli: trzyma wiersze w pamięci i realizuje deleteMany. */
+const fakeTable = (rows: Row[]) => ({
+  async deleteMany({ where }: { where: { provider: { in: string[] } } }) {
+    const before = rows.length;
+    const kept = rows.filter((row) => !where.provider.in.includes(row.provider));
+    rows.length = 0;
+    rows.push(...kept);
+    return { count: before - rows.length };
   },
 });
 
-describe('purgeLegacyConnections', () => {
-  it('usuwa połączenia Vercela i Supabase, zostawia GitHuba', async () => {
-    const rows = [{ provider: 'github' }, { provider: 'vercel' }, { provider: 'supabase' }];
-    const client = fakeClient(rows);
+describe('purgeLegacyProviders', () => {
+  it('czyści obie tabele, zostawiając GitHuba w każdej', async () => {
+    const connections = [{ provider: 'github' }, { provider: 'vercel' }, { provider: 'supabase' }];
+    const tokens = [{ provider: 'vercel' }, { provider: 'github' }];
 
-    const removed = await purgeLegacyConnections(client);
+    const removed = await purgeLegacyProviders({
+      projectServiceConnection: fakeTable(connections),
+      serviceToken: fakeTable(tokens),
+    });
 
-    expect(removed).toBe(2);
-    expect(rows).toEqual([{ provider: 'github' }]);
+    expect(removed).toEqual({ connections: 2, tokens: 1 });
+    expect(connections).toEqual([{ provider: 'github' }]);
+    expect(tokens).toEqual([{ provider: 'github' }]);
   });
 
-  it('nie usuwa nic, gdy nie ma czego', async () => {
-    const rows = [{ provider: 'github' }];
-    const client = fakeClient(rows);
-    expect(await purgeLegacyConnections(client)).toBe(0);
-    expect(rows).toEqual([{ provider: 'github' }]);
+  it('nie rusza tabeli bez starych providerów', async () => {
+    const connections = [{ provider: 'github' }];
+    const tokens = [{ provider: 'github' }];
+    const removed = await purgeLegacyProviders({
+      projectServiceConnection: fakeTable(connections),
+      serviceToken: fakeTable(tokens),
+    });
+    expect(removed).toEqual({ connections: 0, tokens: 0 });
+    expect(connections).toEqual([{ provider: 'github' }]);
+    expect(tokens).toEqual([{ provider: 'github' }]);
+  });
+
+  it('nie obejmuje githuba w liście usuwanych', async () => {
+    // Regresja: gdyby ktoś dopisał 'github' do LEGACY_PROVIDERS, ten test padnie.
+    const tokens = [{ provider: 'github' }];
+    await purgeLegacyProviders({
+      projectServiceConnection: fakeTable([]),
+      serviceToken: fakeTable(tokens),
+    });
+    expect(tokens).toHaveLength(1);
   });
 });
 ```
@@ -917,7 +940,7 @@ describe('purgeLegacyConnections', () => {
 - [ ] **Step 2: Uruchom test i potwierdź, że failuje**
 
 Run: `npx vitest run tests/migration/legacy-purge.test.ts`
-Expected: FAIL — `purgeLegacyConnections is not a function`
+Expected: FAIL — `purgeLegacyProviders is not a function`
 
 - [ ] **Step 3: Napisz skrypt migracji z backupem**
 
@@ -935,12 +958,21 @@ const path = require('path');
 
 const LEGACY_PROVIDERS = ['vercel', 'supabase'];
 
-/** Wydzielone, żeby dało się przetestować bez prawdziwej bazy. */
-async function purgeLegacyConnections(client) {
-  const removed = await client.projectServiceConnection.deleteMany({
+/**
+ * Wydzielone, żeby dało się przetestować bez prawdziwej bazy.
+ * Czyści OBIE tabele niosące providera. Po zawężeniu `isProvider` w Task 4
+ * nie istnieje już trasa, którą użytkownik mógłby usunąć stary token —
+ * `DELETE /api/tokens/vercel` zwraca 400 „Invalid provider" — więc wiersz
+ * pominięty tutaj zostaje w bazie na zawsze i nieusuwalny.
+ */
+async function purgeLegacyProviders(client) {
+  const connections = await client.projectServiceConnection.deleteMany({
     where: { provider: { in: LEGACY_PROVIDERS } },
   });
-  return removed.count;
+  const tokens = await client.serviceToken.deleteMany({
+    where: { provider: { in: LEGACY_PROVIDERS } },
+  });
+  return { connections: connections.count, tokens: tokens.count };
 }
 
 async function main() {
@@ -958,8 +990,10 @@ async function main() {
 
   const prisma = new PrismaClient();
   try {
-    const removed = await purgeLegacyConnections(prisma);
-    console.log(`🧹 Removed ${removed} legacy service connection(s)`);
+    const removed = await purgeLegacyProviders(prisma);
+    console.log(
+      `🧹 Removed ${removed.connections} legacy service connection(s) and ${removed.tokens} legacy token(s)`
+    );
   } finally {
     await prisma.$disconnect();
   }
@@ -972,13 +1006,13 @@ if (require.main === module) {
   });
 }
 
-module.exports = { LEGACY_PROVIDERS, purgeLegacyConnections, main };
+module.exports = { LEGACY_PROVIDERS, purgeLegacyProviders, main };
 ```
 
 - [ ] **Step 4: Uruchom test i potwierdź, że przechodzi**
 
 Run: `npx vitest run tests/migration/legacy-purge.test.ts`
-Expected: PASS — 2 testy
+Expected: PASS — 3 testy
 
 - [ ] **Step 5: Zdejmij kolumny ze schematu**
 
@@ -3829,15 +3863,22 @@ init-payload log stays: it is deliberate evidence, not leftovers."
 
 Projekt nie ma living speca, więc nie ma sekcji speca do synchronizacji — README jest jedyną dokumentacją, jaką ten projekt utrzymuje, i to ono musi przestać kłamać.
 
-- [ ] **Step 1: Popraw listę wspieranych agentów**
+- [ ] **Step 1: Popraw nieaktualne teksty w samej aplikacji**
+
+README nie jest jedynym miejscem, które obiecuje zdolności, których produkt już nie ma. Trzy teksty w UI reklamują deploy, usunięty w Task 4:
+- `components/settings/GlobalSettings.tsx:745` — kafel „Fast Deploy" w zakładce About. Zdanie dwa wiersze wyżej zostało już poprawione w Task 4, kafel nie — niekonsekwencja w obrębie jednego elementu.
+- `app/page.tsx:928` — hasło „Connect CLI Agent • Build what you want • Deploy instantly".
+- Sprawdź grepem `-i "deploy\|publish"` po `app components`, czy nie ma więcej. Nie ruszaj nazw technicznych (`deployment` w typach, jeśli jakieś zostały) — tylko treść widzianą przez użytkownika.
+
+- [ ] **Step 2: Popraw listę wspieranych agentów**
 
 W `README.md` usuń sekcje „Supported AI Coding Agents" dotyczące Codex CLI, Cursor CLI, Qwen Code i Z.AI GLM-4.6 wraz z ich instrukcjami instalacji oraz sekcje demo („Codex CLI Example", „Qwen Code Example"). Zostaw Claude Code. Popraw w niej „Context: Native 200k tokens" — Opus 5 i Sonnet 5 mają 1M, Haiku 4.5 ma 200K — i wymień modele dokładnymi id: `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`.
 
-- [ ] **Step 2: Popraw listę integracji**
+- [ ] **Step 3: Popraw listę integracji**
 
 Usuń Vercela i Supabase z „Features", „Technology Stack" i „Integration Guide". Zostaw GitHuba. Usuń zdanie o deploju jednym kliknięciem i o darmowym PostgreSQL.
 
-- [ ] **Step 3: Napraw obiecane skrypty npm**
+- [ ] **Step 4: Napraw obiecane skrypty npm**
 
 Sekcja „Additional Commands" wymienia `npm run db:backup`, `db:reset` i `clean`. `db:backup` istnieje od Task 7 — zostaw z poprawnym opisem. `db:reset` zamień na istniejące `npm run prisma:reset`. `clean` albo usuń z README, albo dodaj do `package.json`:
 
@@ -3846,7 +3887,7 @@ Sekcja „Additional Commands" wymienia `npm run db:backup`, `db:reset` i `clean
 ```
 Wybierz dodanie skryptu, jeśli zostawiasz wpis w README — dokumentacja i `package.json` muszą się zgadzać.
 
-- [ ] **Step 4: Dopisz sekcję Dockera**
+- [ ] **Step 5: Dopisz sekcję Dockera**
 
 Po „Quick Start" dodaj:
 
@@ -3880,11 +3921,11 @@ tą samą ścieżką absolutną — inaczej symlinki zawisną i ustawienia po ci
 nie wejdą.
 ```
 
-- [ ] **Step 5: Dopisz sekcję o template'ach**
+- [ ] **Step 6: Dopisz sekcję o template'ach**
 
 W „Usage" dodaj akapit: nowy projekt wybiera template (Next.js albo Astro); template scaffolduje minimalny projekt i zapisuje `CLAUDE.md` z konwencjami frameworka, które agent czyta z katalogu projektu.
 
-- [ ] **Step 6: Zweryfikuj każdy skrypt wymieniony w README**
+- [ ] **Step 7: Zweryfikuj każdy skrypt wymieniony w README**
 
 Run:
 ```bash
@@ -3898,12 +3939,12 @@ console.log(missing.length ? 'BRAKUJE: ' + missing.join(', ') : 'wszystkie skryp
 ```
 Expected: `wszystkie skrypty z README istnieją`. Wklej wynik do raportu.
 
-- [ ] **Step 7: Ostatnia weryfikacja całości**
+- [ ] **Step 8: Ostatnia weryfikacja całości**
 
 Run: `npm run type-check && npm test && npm run lint && npm run build`
 Expected: wszystko zielone. To jest brama wyjściowa planu.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add README.md package.json
