@@ -47,10 +47,12 @@ Ten dokument jest jedynym artefaktem bramki designu.
 | 21 | `bypassPermissions` | **Dodać `allowDangerouslySkipPermissions: true`** | Znalezisko O. SDK wymaga tej flagi, żeby tryb w ogóle zadziałał. |
 | 22 | Rzutowanie `as any` na opcjach `query()` | **Usunąć** | Znalezisko Q. To ono ukryło N i O. Bez niego kompilator znalazłby oba w sekundę, a każdy przyszły breaking change SDK zgłosi się sam. |
 | 23 | System prompt agenta | **`systemPrompt: { type: 'preset', preset: 'claude_code' }`** — bez `append`, bez nadpisania. Instrukcje platformy znikają całkowicie. | Polecenie użytkownika: domyślny prompt, nic nie dopisujemy. Pominięcie opcji dałoby pusty prompt (`sdk.mjs`: `if (Y === void 0) G = ""`), więc preset trzeba podać jawnie. Konsekwencje zdjęcia zakazów — ryzyko 6. |
-| 24 | Ustawienia, skille, MCP, CLAUDE.md | **`settingSources: ['user','project','local']`** + katalog `.claude` bindowany do kontenera przez `CLAUDABLE_CLAUDE_DIR` (domyślnie `~/.claude`) | Polecenie użytkownika. Zmienna, a nie sztywna ścieżka, bo bind daje agentowi globalny `CLAUDE.md` użytkownika — ryzyko 7. |
+| 24 | Ustawienia, skille, MCP, CLAUDE.md | **`settingSources: ['user','project','local']`** + katalog `.claude` bindowany przez `CLAUDABLE_CLAUDE_DIR` (domyślnie `~/.claude`) | Wymóg: agent ma zachowywać się jak `claude` w terminalu i brać wszystko z bindowanego katalogu. Co dokładnie z tego wchodzi — zmierzone, sekcja 4.8. |
 | 25 | `maxOutputTokens` | **Nie przekazywać wcale** — default SDK | Polecenie użytkownika (zdjąć limit). Zastępuje decyzję 19. |
 | 26 | Guard `PROJECTS_DIR` w `executeClaude` | **Usunąć** | Polecenie użytkownika. Znosi to granicę zapisu poza katalogiem projektu — akceptowalne dopiero dlatego, że całość idzie do kontenera, w którym zamontowane są wyłącznie `/data` i katalog `.claude`. Konsolidacja resolvera ścieżek (znalezisko F) zostaje, bo dotyczy poprawnych ścieżek, nie ograniczeń. |
 | 27 | Payload `system`/`init` z SDK | **Logować i publikować** (`cwd`, `tools`, `skills`, `agents`, `mcp_servers`, `plugins`, `permissionMode`, `model`) | Znalezisko R. To jedyny sposób udowodnienia decyzji 20-24 empirycznie, a nie z typów: SDK sam raportuje, w jakim katalogu siedzi i co widzi. Dowód dla reguły „nic nie jest zrobione bez uruchomienia". |
+| 28 | Subagenci z plików | **Claudable sam czyta `agents/*.md`** (scope user i project), parsuje frontmatter i podaje przez opcję `agents` | `settingSources` ich **nie** ładuje — zmierzone: 5 definicji w `~/.claude/agents/` plus jedna podłożona w katalogu projektu, a payload `init` dalej raportuje wyłącznie cztery wbudowane. Bez tego parytet z terminalem jest niepełny dokładnie w tym jednym miejscu. |
+| 29 | Zawartość obrazu Dockera | **`python3` i `bash`** obok `git` i Node | Hooki z bindowanego katalogu wykonują się jako procesy — bez interpretera po prostu nie ruszą. Niezależne od tego, czyj katalog zostanie zamontowany: hooki użytkowników to zwykle shell albo Python. |
 
 ## 3. Rozważane podejścia — kształt template'ów
 
@@ -160,6 +162,33 @@ Projekty bez `templateType` (istniejące wiersze) czytają się jako `nextjs`.
 `TemplateType` przestaje być zdublowany między `types/backend/project.ts` i
 `types/shared/project.ts` — zostaje jedna definicja, zawężona do `'nextjs' | 'astro'`.
 
+### 4.8 Parytet z terminalem — zmierzony, nie założony
+
+Sprawdzone probe'em na zainstalowanym SDK 0.2.68: przerwanie strumienia na
+wiadomości `system`/`init`, która raportuje faktyczną konfigurację sesji.
+Kolumna „dziś" to obecna konfiguracja Claudable (`settingSources` pominięte,
+`systemPrompt` jako string), kolumna „po zmianie" to preset + `settingSources`.
+
+| Element | Terminal | Dziś | Po zmianie |
+|---|---|---|---|
+| System prompt Claude Code | pełny | **nadpisany** stringiem | pełny (preset) |
+| Skille wbudowane w CLI | 5 | 5 | 5 |
+| Skille z `<dir>/skills` | tak | **nie** | **tak** (5 → 24) |
+| `CLAUDE.md` | tak | **nie** | **tak** — potwierdzone odpowiedzią agenta na instrukcję z pliku |
+| MCP z konfiguracji w `<dir>` | tak | **nie** | **tak** (doszedł `codebase-memory-mcp`) |
+| MCP z konta claude.ai | tak | **tak, już dziś** | tak |
+| Hooki z `settings.json` | tak | nie | **tak** — potwierdzone: hook `PreToolUse` zablokował `Write`, plik nie powstał |
+| Slash commands | tak | 15 | 36 |
+| Subagenci wbudowani | 4 | 4 | 4 |
+| Subagenci z `<dir>/agents/*.md` | tak | nie | **nie** → decyzja 28 |
+| Narzędzia wbudowane | wszystkie | wszystkie | wszystkie |
+
+Dwie rzeczy, które ten pomiar przewrócił względem wcześniejszego odczytu z typów:
+skille i subagenci **nie** były wcześniej „zerem" — pięć skilli wbudowanych w CLI
+i czterech wbudowanych subagentów jest obecnych nawet w trybie izolacji, a serwery
+MCP z konta claude.ai ładują się niezależnie od ustawień (znalezisko S). Brakowało
+wyłącznie tego, co pochodzi z plików w katalogu `.claude`.
+
 ## 5. Audyt — znaleziska
 
 | # | Waga | Znalezisko | Miejsce |
@@ -182,6 +211,7 @@ Projekty bez `templateType` (istniejące wiersze) czytają się jako `nextjs`.
 | P | Wysoka | `systemPrompt` podany jako surowy string **zastępuje** prompt presetu Claude Code, a nie rozszerza go. Agent traci cały harness i zostaje z jedenastoma linijkami o Next.js. | `lib/services/cli/claude.ts:727` |
 | Q | Średnia | Cały obiekt opcji `query()` rzutowany `as any` — najważniejsze wywołanie w aplikacji nie ma kontroli typów. To ono przepuściło N i O. | `lib/services/cli/claude.ts:766` |
 | R | Niska | Wiadomość `system`/`init` z SDK niesie `cwd`, `tools`, `skills`, `agents`, `mcp_servers`, `plugins`, `permissionMode`; handler bierze z niej tylko `session_id` i wyrzuca resztę. Gdyby to było logowane, znalezisko N byłoby widoczne od pierwszego uruchomienia. | `lib/services/cli/claude.ts:953` |
+| S | Informacyjne | Serwery MCP podłączone do konta claude.ai (u testowanego konta: ClickUp, Canva, Microsoft 365) ładują się **niezależnie od `settingSources`** — czyli agent budujący aplikacje ma je w zasięgu już dzisiaj, przed jakąkolwiek zmianą z tego runu. Nie wynikają z plików w `.claude`, więc `settingSources` ich nie kontroluje; gdyby kiedyś przeszkadzały, jedynym hamulcem jest `disallowedTools`. | zmierzone, sekcja 4.8 |
 
 **Świadomie zostawione poza zakresem** (zgłoszone, nie ruszane):
 - `ServiceToken.token` trzymany plain-text — świadomy trade-off „narzędzie
@@ -223,16 +253,17 @@ dostępne z hosta → restart kontenera → projekty na miejscu.
    więc iframe nie pokaże nic, a proces zostanie po sesji. Świadoma konsekwencja
    polecenia użytkownika; jeśli wyjdzie w praktyce, najtańsza korekta to
    `disallowedTools` na `Bash` dla komend dev-servera, nie powrót zakazów do promptu.
-7. **Globalny `CLAUDE.md` użytkownika wchodzi do kontekstu agenta (decyzja 24).**
-   Ten plik nakazuje pipeline `development-workflow`, `flow-state`, worktree i cbm
-   MCP — instrukcje bez sensu dla agenta budującego apkę todo, który zacznie ich
-   szukać. Dlatego ścieżka bindu jest zmienną `CLAUDABLE_CLAUDE_DIR`: przestawienie
-   jej na dedykowany katalog z własnym `CLAUDE.md` to jedna linia w compose, bez
-   zmian w kodzie.
-8. **Symlinki w `~/.claude` przestają być nieszkodliwe (decyzja 24).** Przy
-   `settingSources` włączonym, `settings.json` i `.mcp.json` — symlinki do
-   `/home/m/dotfiles/.claude/` — muszą się rozwiązać w kontenerze, inaczej
-   ustawienia i MCP po prostu nie wejdą. Compose montuje katalog docelowy pod tą
-   samą ścieżką absolutną (zmienna, domyślnie pusta). Weryfikacja: payload z
-   decyzji 27 pokazuje `mcp_servers` i `skills` — jeśli są puste, symlinki wiszą.
-   flicker — dlatego usunięcia idą przed naprawą UI (decyzja 15), nie odwrotnie.
+7. **Bindowany katalog wnosi do agenta cały harness swojego właściciela** —
+   `CLAUDE.md`, skille, hooki, MCP. Zmierzone i potwierdzone (sekcja 4.8), w tym
+   hook blokujący `Write`. Użytkownik przyjmuje to świadomie: docelowo instancja
+   stoi na innej maszynie z katalogiem dostosowanym pod jej użytkownika. Ścieżka
+   bindu zostaje zmienną `CLAUDABLE_CLAUDE_DIR` właśnie po to, żeby ten katalog
+   dał się podmienić bez zmian w kodzie.
+8. **Symlinki w bindowanym katalogu.** W testowanym `~/.claude` `CLAUDE.md`,
+   `agents`, `settings.json`, `.mcp.json` i wszystkie `hooks/*` są symlinkami do
+   `/home/m/dotfiles/.claude/`. W kontenerze muszą się rozwiązać, inaczej nie wejdą
+   — a przy `settingSources` włączonym to już nie jest nieszkodliwe. Docelowa
+   maszyna będzie miała realne pliki, ale mechanizm mountu i tak musi to znosić:
+   compose montuje katalog docelowy pod tą samą ścieżką absolutną (zmienna,
+   domyślnie pusta). Weryfikacja przez payload z decyzji 27 — puste `skills`
+   i `mcp_servers` znaczą wiszące symlinki.
