@@ -958,39 +958,36 @@ class PreviewManager {
   }
 
   /**
-   * Zamyka wszystkie dev-servery. Dla ścieżek, które mają czas na
-   * asynchroniczny zapis do bazy (np. zamykanie z UI). Nie wołane z
-   * handlera sygnałów — tam nic asynchronicznego nie ma gwarancji
-   * dobiegnięcia, patrz `killAllSync()`.
-   */
-  public async stopAll(): Promise<void> {
-    const ids = Array.from(this.processes.keys());
-    for (const projectId of ids) {
-      try {
-        await this.stop(projectId);
-      } catch (error) {
-        console.error(`[PreviewManager] Failed to stop preview for ${projectId}:`, error);
-      }
-    }
-  }
-
-  /**
    * Ubija drzewa procesów wszystkich dev-serverów. WYŁĄCZNIE synchronicznie:
    * wołane z handlera sygnałów, gdzie nic asynchronicznego nie ma gwarancji
    * dobiegnięcia. Nie dotyka bazy — stan previewUrl/previewPort naprawia
    * rekoncyliacja przy następnym starcie (Task 11).
+   *
+   * Zwraca liczby osobno dla `group` (ubito całą grupę procesów) i `single`
+   * (ubito tylko lidera, bo proces nie był liderem grupy — wnuki mogły
+   * zostać). To rozróżnienie jest nośne: gdyby oba wpadały do jednej sumy,
+   * regresja `detached` (fallback ubijający tylko npm) logowałaby się jako
+   * pełny sukces.
    */
-  public killAllSync(): number {
-    let killed = 0;
+  public killAllSync(): { group: number; single: number } {
+    const result = { group: 0, single: 0 };
     for (const [projectId, processInfo] of this.processes) {
-      if (killProcessTree(processInfo.process?.pid, 'SIGTERM')) {
-        killed += 1;
-      } else {
+      const { signalled, scope } = killProcessTree(processInfo.process?.pid, 'SIGTERM');
+      if (!signalled) {
         console.error(`[PreviewManager] Failed to kill preview process tree for ${projectId}`);
+        continue;
+      }
+      if (scope === 'group') {
+        result.group += 1;
+      } else {
+        result.single += 1;
+        console.warn(
+          `[PreviewManager] Signalled only the process leader for ${projectId} (not a process group); descendants may still hold their port`
+        );
       }
     }
     this.processes.clear();
-    return killed;
+    return result;
   }
 
   public getStatus(projectId: string): PreviewInfo {

@@ -15,8 +15,14 @@ let shuttingDown = false;
 const shutdown = (signal: NodeJS.Signals) => {
   if (shuttingDown) return;
   shuttingDown = true;
-  const killed = previewManager.killAllSync();
-  console.log(`[Shutdown] ${signal}: killed ${killed} preview process tree(s)`);
+  const { group, single } = previewManager.killAllSync();
+  if (single > 0) {
+    console.warn(
+      `[Shutdown] ${signal}: killed ${group} preview process group(s); WARNING: ${single} preview(s) could only be signalled as a single process (not a process group) — descendants may still hold their port`
+    );
+  } else {
+    console.log(`[Shutdown] ${signal}: killed ${group} preview process tree(s)`);
+  }
   process.exit(0);
 };
 

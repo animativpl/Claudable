@@ -173,6 +173,17 @@ async function startWebDevServer({
   return { child, port: resolvedPort, url: resolvedUrl };
 }
 
+// `kill -TERM` on this wrapper's own pid only signals this process, not its
+// child — the default SIGTERM action just terminates the wrapper, leaving
+// `next dev` (and anything it spawns) running unsignalled. Ctrl+C already
+// works because it reaches the whole foreground process group, but an
+// explicit kill on this pid needs an explicit relay.
+function forwardSignalToChild(child, signal) {
+  if (!child.killed) {
+    child.kill(signal);
+  }
+}
+
 async function runFromCli() {
   const argv = process.argv.slice(2);
   const { preferredPort, passthrough } = parseCliArgs(argv);
@@ -195,6 +206,10 @@ async function runFromCli() {
       process.exit(code);
     }
   });
+
+  const handleSignal = (signal) => forwardSignalToChild(child, signal);
+  process.on('SIGINT', handleSignal);
+  process.on('SIGTERM', handleSignal);
 }
 
 if (require.main === module) {
@@ -208,4 +223,5 @@ if (require.main === module) {
 module.exports = {
   parseCliArgs,
   startWebDevServer,
+  forwardSignalToChild,
 };

@@ -43,7 +43,7 @@ describe('PreviewManager.killAllSync', () => {
 
       const killed = previewManager.killAllSync();
 
-      expect(killed).toBe(1);
+      expect(killed).toEqual({ group: 1, single: 0 });
       expect(previewManager.getStatus('killallsync-test-project').status).toBe(
         'stopped'
       );
@@ -53,7 +53,38 @@ describe('PreviewManager.killAllSync', () => {
     }
   );
 
-  it('returns 0 when there is nothing tracked', () => {
-    expect(previewManager.killAllSync()).toBe(0);
+  // The detached child above is a process group leader, so it is always
+  // killed with scope 'group'. This test covers the other branch: a tracked
+  // process that is NOT a group leader must be counted as 'single', not
+  // silently folded into the same success count (review finding 1).
+  it.skipIf(process.platform === 'win32')(
+    'counts a non-detached tracked process under single, not group',
+    async () => {
+      const child = spawn('sh', ['-c', 'sleep 30'], { stdio: 'ignore' });
+      const pid = child.pid!;
+
+      (previewManager as unknown as { processes: Map<string, unknown> }).processes.set(
+        'killallsync-single-test-project',
+        {
+          process: child,
+          port: 39998,
+          url: 'http://localhost:39998',
+          status: 'running',
+          logs: [],
+          startedAt: new Date(),
+        }
+      );
+
+      const killed = previewManager.killAllSync();
+
+      expect(killed).toEqual({ group: 0, single: 1 });
+
+      await wait(500);
+      expect(isAlive(pid)).toBe(false);
+    }
+  );
+
+  it('returns group: 0, single: 0 when there is nothing tracked', () => {
+    expect(previewManager.killAllSync()).toEqual({ group: 0, single: 0 });
   });
 });
