@@ -11,6 +11,7 @@ import { scaffoldBasicNextApp } from '@/lib/utils/scaffold';
 import { PREVIEW_CONFIG } from '@/lib/config/constants';
 import { killProcessTree } from './process-tree';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
+import { prisma } from '@/lib/db/client';
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -1025,3 +1026,25 @@ const globalPreviewManager = globalThis as unknown as {
 export const previewManager: PreviewManager =
   globalPreviewManager.__claudable_preview_manager__ ??
   (globalPreviewManager.__claudable_preview_manager__ = new PreviewManager());
+
+/**
+ * Po restarcie serwera mapa procesów jest pusta, więc każdy projekt
+ * z zapisanym `previewUrl` kłamie — proces, do którego ten adres wskazywał,
+ * nie żyje albo nie jest już nasz. Handler sygnałów nie może tego posprzątać
+ * (patrz Task 9: żadne `await` nie dobiega), więc robimy to przy starcie.
+ */
+export async function reconcileStalePreviews(): Promise<number> {
+  try {
+    const result = await prisma.project.updateMany({
+      where: { NOT: { previewUrl: null } },
+      data: { previewUrl: null, previewPort: null, status: 'idle' },
+    });
+    if (result.count > 0) {
+      console.log(`[PreviewManager] Cleared stale preview state for ${result.count} project(s)`);
+    }
+    return result.count;
+  } catch (error) {
+    console.error('[PreviewManager] Failed to reconcile stale previews:', error);
+    return 0;
+  }
+}

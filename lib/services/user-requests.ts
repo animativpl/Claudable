@@ -132,3 +132,40 @@ export async function markUserRequestAsFailed(
     setCompletionTimestamp: true,
   });
 }
+
+export const RECONCILABLE_STATUSES = ['pending', 'processing', 'active', 'running'];
+
+export interface StaleRequestClient {
+  userRequest: {
+    updateMany(args: {
+      where: { status: { in: string[] } };
+      data: { status: string; errorMessage: string; completedAt: Date };
+    }): Promise<{ count: number }>;
+  };
+}
+
+/**
+ * Statusy zgłoszeń pisze wyłącznie proces wykonujący agenta. Jeśli padnie
+ * w trakcie, wiersz zostaje w `processing` na zawsze i UI pokazuje run,
+ * którego nie ma. Przy starcie każdy niedomknięty run jest z definicji
+ * martwy — nie ma go kto kontynuować.
+ */
+export async function reconcileStaleRequests(client: StaleRequestClient = prisma): Promise<number> {
+  try {
+    const result = await client.userRequest.updateMany({
+      where: { status: { in: RECONCILABLE_STATUSES } },
+      data: {
+        status: 'failed',
+        errorMessage: 'Interrupted by a server restart',
+        completedAt: new Date(),
+      },
+    });
+    if (result.count > 0) {
+      console.log(`[UserRequests] Reconciled ${result.count} request(s) interrupted by a restart`);
+    }
+    return result.count;
+  } catch (error) {
+    console.error('[UserRequests] Failed to reconcile stale requests:', error);
+    return 0;
+  }
+}

@@ -69,15 +69,13 @@ export function useUserRequests({ projectId }: UseUserRequestsOptions) {
         cache: 'no-store',
       });
       if (response.status === 404) {
-        if (previousActiveState.current) {
-          console.log('🔄 [UserRequests] Active requests endpoint unavailable; assuming no active requests.');
-        }
-        if (activeRequestIdsRef.current.size > 0) {
-          activeRequestIdsRef.current.clear();
-        }
-        setHasActiveRequests(false);
-        setActiveCount(0);
-        previousActiveState.current = false;
+        // A 404 here is a network/server hiccup, not proof the run finished —
+        // it does not distinguish "no active requests" from "couldn't ask".
+        // Flipping hasActiveRequests to false on it produced a false falling
+        // edge that could fire the preview auto-start effect mid-run (the
+        // same class of bug Task 8 removed for isRunning). Preserve the
+        // previous state and only log.
+        console.warn('[UserRequests] Active requests endpoint returned 404; keeping previous state.');
         return;
       }
 
@@ -99,14 +97,9 @@ export function useUserRequests({ projectId }: UseUserRequestsOptions) {
         return;
       }
     } catch (error) {
-      if (activeRequestIdsRef.current.size > 0) {
-        activeRequestIdsRef.current.clear();
-        setFromActiveSet();
-      } else {
-        setHasActiveRequests(false);
-        setActiveCount(0);
-      }
-      previousActiveState.current = false;
+      // A failed or interrupted poll is not proof the run finished — keep
+      // the previous state instead of guessing "no active requests" (same
+      // reasoning as the 404 branch above).
       if (process.env.NODE_ENV === 'development') {
         console.warn('[UserRequests] Failed to check active requests (network issue):', error);
       }

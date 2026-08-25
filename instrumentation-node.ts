@@ -9,7 +9,16 @@
  * Ubijanie drzew procesów jest synchroniczne, więc jest bezpieczne tutaj;
  * stan w bazie naprawia rekoncyliacja przy następnym starcie (Task 11).
  */
-import { previewManager } from '@/lib/services/preview';
+import { previewManager, reconcileStalePreviews } from '@/lib/services/preview';
+import { reconcileStaleRequests } from '@/lib/services/user-requests';
+
+// Rekoncyliacja przy starcie: każdy UserRequest/preview niedomknięty w chwili
+// startu jest z definicji martwy, bo nie ma go kto kontynuować (Task 11).
+// Musi wykonać się PRZED rejestracją handlerów sygnałów poniżej — to
+// asynchroniczna ścieżka, a handler sygnałów musi zostać wyłącznie
+// synchroniczny (patrz komentarz przy `shutdown`).
+void reconcileStaleRequests();
+void reconcileStalePreviews();
 
 let shuttingDown = false;
 const shutdown = (signal: NodeJS.Signals) => {
