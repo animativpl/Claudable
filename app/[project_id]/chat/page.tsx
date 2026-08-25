@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { FaCode, FaDesktop, FaMobileAlt, FaPlay, FaStop, FaSync, FaCog, FaFolder, FaFolderOpen, FaFile, FaFileCode, FaCss3Alt, FaHtml5, FaJs, FaReact, FaPython, FaDocker, FaGitAlt, FaMarkdown, FaDatabase, FaPhp, FaJava, FaRust, FaVuejs, FaLock, FaHome, FaChevronUp, FaChevronRight, FaChevronDown, FaArrowLeft, FaArrowRight, FaRedo } from 'react-icons/fa';
 import { SiTypescript, SiGo, SiRuby, SiSvelte, SiJson, SiYaml, SiCplusplus } from 'react-icons/si';
 import { VscJson } from 'react-icons/vsc';
-import ChatLog from '@/components/chat/ChatLog';
+import ChatLog, { type MessageHandlers } from '@/components/chat/ChatLog';
 import { ProjectSettings } from '@/components/settings/ProjectSettings';
 import ChatInput from '@/components/chat/ChatInput';
 import { ChatErrorBoundary } from '@/components/ErrorBoundary';
@@ -213,7 +213,6 @@ export default function ChatPage() {
   const optimisticMessagesRef = useRef<Map<string, any>>(new Map());
   const [mode, setMode] = useState<'act' | 'chat'>('act');
   const [isRunning, setIsRunning] = useState(false);
-  const [isSseFallbackActive, setIsSseFallbackActive] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [deviceMode, setDeviceMode] = useState<'desktop'|'mobile'>('desktop');
   const [showGlobalSettings, setShowGlobalSettings] = useState(false);
@@ -1601,6 +1600,27 @@ const persistProjectPreferences = useCallback(
   }
 
 
+  const handleChatHandlersReady = useCallback((handlers: MessageHandlers) => {
+    messageHandlersRef.current = handlers;
+  }, []);
+
+  const handleSessionStatusChange = useCallback((isRunningValue: boolean) => {
+    setIsRunning(isRunningValue);
+  }, []);
+
+  // Auto-start the preview once the agent finishes its first run.
+  const prevIsRunningRef = useRef(false);
+  useEffect(() => {
+    const wasRunning = prevIsRunningRef.current;
+    prevIsRunningRef.current = isRunning;
+    // Falling edge only: the agent finished, as opposed to "the agent is idle".
+    if (!wasRunning || isRunning) return;
+    if (!hasInitialPrompt || agentWorkComplete || previewUrl) return;
+    setAgentWorkComplete(true);
+    localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
+    start();
+  }, [isRunning, hasInitialPrompt, agentWorkComplete, previewUrl, projectId, start]);
+
   // Handle project status updates via callback from ChatLog
   const handleProjectStatusUpdate = (status: string, message?: string) => {
     const previousStatus = projectStatus;
@@ -1860,34 +1880,9 @@ const persistProjectPreferences = useCallback(
               <ChatErrorBoundary>
                 <ChatLog
                   projectId={projectId}
-                  onAddUserMessage={(handlers) => {
-                    console.log('🔄 [HandlerSetup] ChatLog provided new handlers, updating references');
-                    messageHandlersRef.current = handlers;
-
-                    // Also update stable handlers if they exist
-                    if (stableMessageHandlers.current) {
-                      console.log('🔄 [HandlerSetup] Updating stable handlers reference');
-                      // Note: stableMessageHandlers.current already has its own add/remove logic
-                      // We don't replace it completely, just keep the reference to handlers
-                    }
-                  }}
-                  onSessionStatusChange={(isRunningValue) => {
-                  console.log('🔍 [DEBUG] Session status change:', isRunningValue);
-                  setIsRunning(isRunningValue);
-                  // Track agent task completion and auto-start preview
-                  if (!isRunningValue && hasInitialPrompt && !agentWorkComplete && !previewUrl) {
-                    setAgentWorkComplete(true);
-                    // Save to localStorage
-                    localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
-                    // Auto-start preview server after initial prompt task completion
-                    start();
-                  }
-                }}
-                onSseFallbackActive={(active) => {
-                  console.log('🔄 [SSE] Fallback status:', active);
-                  setIsSseFallbackActive(active);
-                }}
-                onProjectStatusUpdate={handleProjectStatusUpdate}
+                  onAddUserMessage={handleChatHandlersReady}
+                  onSessionStatusChange={handleSessionStatusChange}
+                  onProjectStatusUpdate={handleProjectStatusUpdate}
                 startRequest={startRequest}
                 completeRequest={completeRequest}
               />

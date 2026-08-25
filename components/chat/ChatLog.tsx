@@ -1,6 +1,5 @@
 "use client";
 import React, { useEffect, useState, useRef, ReactElement, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { Brain } from 'lucide-react';
 import ToolResultItem from './ToolResultItem';
@@ -968,13 +967,6 @@ const ToolMessage = ({
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
-interface LogEntry {
-  id: string;
-  type: string;
-  data: any;
-  timestamp: string;
-}
-
 interface ActiveSession {
   status: string;
   sessionId?: string;
@@ -983,23 +975,22 @@ interface ActiveSession {
   durationSeconds?: number;
 }
 
+export interface MessageHandlers {
+  add: (message: ChatMessage) => void;
+  remove: (messageId: string) => void;
+}
+
 interface ChatLogProps {
   projectId: string;
   onSessionStatusChange?: (isRunning: boolean) => void;
   onProjectStatusUpdate?: (status: string, message?: string) => void;
-  onSseFallbackActive?: (active: boolean) => void;
   startRequest?: (requestId: string) => void;
   completeRequest?: (requestId: string, isSuccessful: boolean, errorMessage?: string) => void;
-  onAddUserMessage?: (handlers: {
-    add: (message: ChatMessage) => void;
-    remove: (messageId: string) => void;
-  }) => void;
+  onAddUserMessage?: (handlers: MessageHandlers) => void;
 }
 
-export default function ChatLog({ projectId, onSessionStatusChange, onProjectStatusUpdate, onSseFallbackActive, startRequest, completeRequest, onAddUserMessage }: ChatLogProps) {
+export default function ChatLog({ projectId, onSessionStatusChange, onProjectStatusUpdate, startRequest, completeRequest, onAddUserMessage }: ChatLogProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -1008,13 +999,29 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [needsHistoryRefresh, setNeedsHistoryRefresh] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionPollRef = useRef<NodeJS.Timeout | null>(null);
+  const historyPollRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedInitialDataRef = useRef(false);
   const [isSseConnected, setIsSseConnected] = useState(false);
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [expandedToolMessages, setExpandedToolMessages] = useState<Record<string, ToolExpansionState>>({});
   const fallbackMessageIdRef = useRef<Map<string, string>>(new Map());
   const visibleToolMessageIdsRef = useRef<Set<string>>(new Set());
+
+  // Parent callbacks are inline arrows, so their identity changes on every
+  // parent render. Reading them through a ref keeps them out of dependency
+  // arrays without losing the latest version.
+  const parentHandlersRef = useRef({ onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage });
+  useEffect(() => {
+    parentHandlersRef.current = { onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage };
+  }, [onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage]);
+
+  const hasStreamingMessageRef = useRef(false);
+  useEffect(() => {
+    hasStreamingMessageRef.current = messages.some(
+      (message) => message.role === 'assistant' && message.isStreaming && !message.isFinal
+    );
+  }, [messages]);
 
   const ensureStableMessageId = useCallback((message: ChatMessage): string => {
     if (message.id) {
@@ -1182,8 +1189,9 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     return false;
   }, []);
 
-  const markMessageAsProcessed = useCallback((message: ChatMessage, transport?: 'sse' | 'optimistic' | 'unknown') => {
-    const source = transport || 'unknown';
+  const markMessageAsProcessed = useCallback((message: ChatMessage) => {
+    // SSE is the only transport, so the source is fixed.
+    const source = 'sse';
     const shouldFinalize = !message.isStreaming || message.isFinal;
 
     if (message.id) {
@@ -1311,7 +1319,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       });
 
       filteredMessages.forEach((messageWithId) => {
-        markMessageAsProcessed(messageWithId, transportSource);
+        markMessageAsProcessed(messageWithId);
       });
     }
 
@@ -1346,12 +1354,12 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       const resolvedStatus = statusData?.status ?? status;
 
       if (statusData?.status && statusData.message && status === 'project_status') {
-        onProjectStatusUpdate?.(statusData.status, statusData.message);
+        parentHandlersRef.current.onProjectStatusUpdate?.(statusData.status, statusData.message);
       }
 
       if (resolvedStatus === 'completed') {
         setActiveSession(null);
-        onSessionStatusChange?.(false);
+        parentHandlersRef.current.onSessionStatusChange?.(false);
         setIsWaitingForResponse(false);
       }
 
@@ -1373,7 +1381,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         completeRequest?.(requestKey, false, statusData?.message);
       }
     },
-    [onProjectStatusUpdate, onSessionStatusChange, startRequest, completeRequest]
+    [startRequest, completeRequest]
   );
 
   const handleRealtimeError = useCallback((error: Error) => {
@@ -1496,7 +1504,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         source.onopen = () => {
           console.log('🔄 [Transport] SSE connection established');
           setIsSseConnected(true);
-          onSseFallbackActive?.(false);
         };
 
         source.onmessage = (event) => {
@@ -1542,7 +1549,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         clearTimeout(reconnectTimer);
       }
     };
-  }, [projectId, handleRealtimeEnvelope, onSseFallbackActive]);
+  }, [projectId, handleRealtimeEnvelope]);
 
   const scrollToBottom = () => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1592,7 +1599,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     return toolPatterns.some(pattern => pattern.test(content));
   }, []);
 
-  useEffect(scrollToBottom, [messages, logs]);
+  useEffect(scrollToBottom, [messages]);
 
   useEffect(() => {
     setExpandedToolMessages((prev) => {
@@ -1841,11 +1848,11 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   // Poll session status periodically
   const startSessionPolling = useCallback(
     (sessionId: string) => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
+      if (sessionPollRef.current) {
+        clearInterval(sessionPollRef.current);
       }
 
-      pollIntervalRef.current = setInterval(async () => {
+      sessionPollRef.current = setInterval(async () => {
         try {
           const response = await fetch(
             `${API_BASE}/api/chat/${projectId}/sessions/${sessionId}/status`
@@ -1855,15 +1862,15 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
             if (sessionStatus.status !== 'active') {
               setActiveSession(null);
-              onSessionStatusChange?.(false);
+              parentHandlersRef.current.onSessionStatusChange?.(false);
 
-              if (pollIntervalRef.current) {
-                clearInterval(pollIntervalRef.current);
-                pollIntervalRef.current = null;
+              if (sessionPollRef.current) {
+                clearInterval(sessionPollRef.current);
+                sessionPollRef.current = null;
               }
 
-              // Trigger reload flag instead of direct call
-          setHasLoadedOnce(false);
+              // Refresh the tail of the history without showing the skeleton.
+              setNeedsHistoryRefresh(true);
             }
           }
         } catch (error) {
@@ -1873,7 +1880,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         }
       }, 3000); // Poll every 3 seconds
     },
-    [projectId, onSessionStatusChange]
+    [projectId]
   );
 
   // Check for active session on component mount
@@ -1894,31 +1901,31 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
             if (process.env.NODE_ENV === 'development') {
               console.log('Found active session:', session.sessionId);
             }
-            onSessionStatusChange?.(true);
+            parentHandlersRef.current.onSessionStatusChange?.(true);
 
             // Start polling session status
             startSessionPolling(session.sessionId);
           } else {
-            onSessionStatusChange?.(false);
+            parentHandlersRef.current.onSessionStatusChange?.(false);
           }
         } else {
           // No active session found
           setActiveSession(null);
-          onSessionStatusChange?.(false);
+          parentHandlersRef.current.onSessionStatusChange?.(false);
         }
       } else {
         // 404 means no active session, which is normal
         setActiveSession(null);
-        onSessionStatusChange?.(false);
+        parentHandlersRef.current.onSessionStatusChange?.(false);
       }
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
         console.warn('Failed to check active session:', error);
       }
       setActiveSession(null);
-      onSessionStatusChange?.(false);
+      parentHandlersRef.current.onSessionStatusChange?.(false);
     }
-  }, [projectId, onSessionStatusChange, startSessionPolling]);
+  }, [projectId, startSessionPolling]);
 
   // Enhanced polling system to prevent conflicts with real-time connections
   useEffect(() => {
@@ -1926,18 +1933,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
     // Don't poll if we have an active real-time connection
     if (isSseConnected) {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      if (historyPollRef.current) {
+        clearInterval(historyPollRef.current);
+        historyPollRef.current = null;
       }
       return;
     }
 
-    const isStreamingMessagePending = messages.some(
-      (message) => message.role === 'assistant' && message.isStreaming && !message.isFinal
-    );
-
-    if (isStreamingMessagePending) {
+    if (hasStreamingMessageRef.current) {
       return;
     }
 
@@ -1945,25 +1948,25 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     const shouldPoll = !isSseConnected;
 
     if (!shouldPoll) {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      if (historyPollRef.current) {
+        clearInterval(historyPollRef.current);
+        historyPollRef.current = null;
       }
       return;
     }
 
     // Clear any existing interval
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
+    if (historyPollRef.current) {
+      clearInterval(historyPollRef.current);
     }
 
-    pollIntervalRef.current = setInterval(() => {
+    historyPollRef.current = setInterval(() => {
       // Double-check connection status before polling
       if (isSseConnected) {
         console.debug(`[ChatLog] Stopping polling due to active connection: SSE=${isSseConnected}`);
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
+        if (historyPollRef.current) {
+          clearInterval(historyPollRef.current);
+          historyPollRef.current = null;
         }
         return;
       }
@@ -1976,12 +1979,12 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     }, 3000); // Consistent 3-second interval when polling
 
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      if (historyPollRef.current) {
+        clearInterval(historyPollRef.current);
+        historyPollRef.current = null;
       }
     };
-  }, [projectId, isSseConnected, messages, loadChatHistory]);
+  }, [projectId, isSseConnected, loadChatHistory]);
 
   // Initial load
   useEffect(() => {
@@ -2000,32 +2003,26 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     
     return () => {
       mounted = false;
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      if (sessionPollRef.current) {
+        clearInterval(sessionPollRef.current);
+        sessionPollRef.current = null;
       }
     };
-  }, [projectId, checkActiveSession, loadChatHistory]);
+  // Ładowanie startowe dla danego projektu. Deps to wyłącznie projectId:
+  // handlery od rodzica są niestabilne, a ich zmiana nie jest powodem, by
+  // przeładować historię czatu.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   useEffect(() => {
     hasLoadedInitialDataRef.current = false;
     setHasLoadedOnce(false);
     setIsLoading(true);
     setMessages([]);
-    setLogs([]);
     setExpandedToolMessages({});
     fallbackMessageIdRef.current.clear();
     visibleToolMessageIdsRef.current.clear();
   }, [projectId]);
-
-  const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
-  };
 
   // Function to convert file paths to relative paths
   const shortenPath = (text: string) => {
@@ -2355,159 +2352,10 @@ const ToolResultMessage = ({
     return true;
   };
 
-  const renderLogEntry = (log: LogEntry) => {
-    switch (log.type) {
-      case 'system':
-        return (
-          <div>
-            System connected (Model: {log.data.model || 'Unknown'})
-          </div>
-        );
-
-      case 'act_start':
-        return (
-          <div>
-            Starting task: {shortenPath(log.data.instruction)}
-          </div>
-        );
-
-      case 'text':
-        return (
-          <div>
-            <ReactMarkdown 
-              components={{
-                p: ({children}) => <p className="mb-2 last:mb-0 break-words">{children}</p>,
-                strong: ({children}) => <strong className="font-medium">{children}</strong>,
-                em: ({children}) => <em className="italic">{children}</em>,
-                code: ({children}) => <code className="bg-gray-100 px-2 py-1 rounded text-xs font-mono break-all">{children}</code>,
-                pre: ({children}) => <pre className="bg-gray-100 p-3 rounded-lg my-2 overflow-x-auto text-xs break-words">{children}</pre>,
-                ul: ({children}) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                ol: ({children}) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                li: ({children}) => <li className="mb-1 break-words">{children}</li>
-              }}
-            >
-              {shortenPath(log.data.content)}
-            </ReactMarkdown>
-          </div>
-        );
-
-      case 'thinking':
-        return (
-          <div className="italic">
-            Thinking: {shortenPath(log.data.content)}
-          </div>
-        );
-
-      case 'tool_start':
-        return (
-          <div>
-            Using tool: {shortenPath(log.data.summary || log.data.tool_name)}
-          </div>
-        );
-
-      case 'tool_result':
-        const isError = log.data.is_error;
-        return (
-          <div>
-            {shortenPath(log.data.summary)} {isError ? 'failed' : 'completed'}
-          </div>
-        );
-
-      case 'result':
-        return (
-          <div>
-            Task completed ({log.data.duration_ms}ms, {log.data.turns} turns
-            {log.data.total_cost_usd && `, $${log.data.total_cost_usd.toFixed(4)}`})
-          </div>
-        );
-
-      case 'act_complete':
-        return (
-          <div className="font-medium">
-            Task completed: {shortenPath(log.data.commit_message || log.data.changes_summary)}
-          </div>
-        );
-
-      case 'error':
-        return (
-          <div>
-            Error occurred: {shortenPath(log.data.message)}
-          </div>
-        );
-
-      default:
-        return (
-          <div>
-            {log.type}: {typeof log.data === 'object' ? JSON.stringify(log.data).substring(0, 100) : String(log.data).substring(0, 100)}...
-          </div>
-        );
-    }
-  };
-
-  const openDetailModal = (log: LogEntry) => {
-    setSelectedLog(log);
-  };
-
-  const closeDetailModal = () => {
-    setSelectedLog(null);
-  };
-
-  const renderDetailModal = () => {
-    if (!selectedLog) return null;
-
-    const { type, data } = selectedLog;
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.9 }}
-        >
-          <div className="bg-white rounded-lg p-6 max-w-4xl max-h-[80vh] overflow-auto border border-gray-200 ">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 ">Log Details</h3>
-            <button
-              onClick={closeDetailModal}
-              className="text-gray-500 hover:text-gray-700 text-xl"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <div className="text-gray-900 ">
-              <strong className="text-gray-700 ">Type:</strong> {type}
-            </div>
-            <div className="text-gray-900 ">
-              <strong className="text-gray-700 ">Time:</strong> {formatTime(selectedLog.timestamp)}
-            </div>
-
-            {type === 'tool_result' && data.diff_info && (
-              <div>
-                <strong className="text-gray-700 ">Changes:</strong>
-                <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto text-xs font-mono">
-                  {data.diff_info}
-                </pre>
-              </div>
-            )}
-
-            <div>
-              <strong className="text-gray-700 ">Detailed Data:</strong>
-              <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto text-xs font-mono">
-                {JSON.stringify(data, null, 2)}
-              </pre>
-            </div>
-          </div>
-          </div>
-        </motion.div>
-      </div>
-    );
-  };
-
   // Expose add/remove message functions to parent
   useEffect(() => {
-    if (onAddUserMessage) {
+    const publishHandlers = parentHandlersRef.current.onAddUserMessage;
+    if (publishHandlers) {
       const addMessage = (message: ChatMessage) => {
         console.log('🔄 [Parent] Adding message via parent callback:', {
           messageId: message.id,
@@ -2561,9 +2409,9 @@ const ToolResultMessage = ({
         setMessages((prev) => prev.filter(m => m.id !== messageId));
       };
 
-      onAddUserMessage({ add: addMessage, remove: removeMessage });
+      publishHandlers({ add: addMessage, remove: removeMessage });
     }
-  }, [onAddUserMessage]);
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-white ">
@@ -2604,7 +2452,7 @@ const ToolResultMessage = ({
         </div>
       )}
 
-      {/* Display messages and logs together */}
+      {/* Display chat messages */}
       <div className="flex-1 overflow-y-auto px-8 py-3 space-y-2 custom-scrollbar ">
         {isLoading && !hasLoadedOnce && !hasError && (
           <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
@@ -2615,7 +2463,7 @@ const ToolResultMessage = ({
           </div>
         )}
         
-        {!isLoading && messages.length === 0 && logs.length === 0 && (
+        {!isLoading && messages.length === 0 && (
           <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
             <div className="text-center">
               <div className="text-2xl mb-2">💬</div>
@@ -2845,23 +2693,6 @@ const ToolResultMessage = ({
           );
         })}
         
-        {/* Render filtered agent logs as plain text */}
-        {logs.filter(log => {
-          // Hide internal tool results and system logs
-          const hideTypes = ['tool_result', 'tool_start', 'system'];
-          return !hideTypes.includes(log.type);
-        }).map((log, index) => (
-          <div
-            key={log.id ?? `log-${index}`}
-            className="mb-4 w-full cursor-pointer"
-            onClick={() => openDetailModal(log)}
-          >
-            <div className="text-sm text-gray-900 leading-relaxed">
-              {renderLogEntry(log)}
-            </div>
-          </div>
-        ))}
-        
         {/* Loading indicator for waiting response */}
         {isWaitingForResponse && (
           <div className="mb-4 w-full">
@@ -2873,11 +2704,6 @@ const ToolResultMessage = ({
         
         <div ref={logsEndRef} />
       </div>
-
-      {/* Detail modal */}
-      <AnimatePresence initial={false}>
-        {selectedLog && renderDetailModal()}
-      </AnimatePresence>
     </div>
   );
 }
