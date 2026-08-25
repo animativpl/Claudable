@@ -3,18 +3,14 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { getProjectById } from '@/lib/services/project';
+import { resolveProjectRoot } from '@/lib/utils/project-path';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
 }
 
-const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
-
 function resolveAssetsPath(projectId: string): string {
-  return path.join(PROJECTS_DIR_ABSOLUTE, projectId, 'assets');
+  return path.join(resolveProjectRoot(projectId), 'assets');
 }
 
 export async function POST(request: Request, { params }: RouteContext) {
@@ -67,9 +63,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
 
     try {
-      const projectRoot = project.repoPath
-        ? (path.isAbsolute(project.repoPath) ? project.repoPath : path.resolve(process.cwd(), project.repoPath))
-        : path.join(PROJECTS_DIR_ABSOLUTE, project_id);
+      const projectRoot = resolveProjectRoot(project_id, project.repoPath);
       const uploadsDir = path.join(projectRoot, 'public', 'uploads');
       await fs.mkdir(uploadsDir, { recursive: true });
       projectPublicPath = path.join(uploadsDir, uniqueName);

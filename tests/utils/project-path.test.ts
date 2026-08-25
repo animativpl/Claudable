@@ -39,4 +39,8 @@ describe('resolveSafeProjectPath', () => {
   it('blokuje ścieżkę absolutną', () => {
     expect(() => resolveSafeProjectPath(root, '/etc/passwd')).toThrow(/outside/i);
   });
+
+  it('odrzuca katalog rodzeństwa o nazwie będącej przedłużeniem bazy', () => {
+    expect(() => resolveSafeProjectPath('/srv/projects/p1', '../p1-evil/secrets.env')).toThrow(/outside/i);
+  });
 });

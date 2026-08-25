@@ -44,7 +44,7 @@ export async function GET(_request: Request, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
     }
 
-    const assetsRoot = path.join(resolveProjectRoot(project_id, project.repoPath), 'assets');
+    const assetsRoot = path.join(resolveProjectRoot(project_id), 'assets');
     let filePath: string;
     try {
       filePath = resolveSafeProjectPath(assetsRoot, filename);

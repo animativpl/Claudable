@@ -2,15 +2,11 @@ import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import { getProjectById } from '@/lib/services/project';
+import { resolveProjectRoot } from '@/lib/utils/project-path';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
 }
-
-const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
 
 export async function POST(request: Request, { params }: RouteContext) {
   try {
@@ -27,7 +23,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     }
 
     const buffer = Buffer.from(b64, 'base64');
-    const assetsPath = path.join(PROJECTS_DIR_ABSOLUTE, project_id, 'assets');
+    const assetsPath = path.join(resolveProjectRoot(project_id), 'assets');
     await fs.mkdir(assetsPath, { recursive: true });
     const logoPath = path.join(assetsPath, 'logo.png');
     await fs.writeFile(logoPath, buffer);
