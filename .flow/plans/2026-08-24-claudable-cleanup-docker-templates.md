@@ -24,9 +24,13 @@
 - Integracja GitHub zostaje nietknięta (`lib/services/{github,git,tokens}.ts`, `components/modals/GitHubRepoModal.tsx`, model `ServiceToken`).
 - Każde zadanie kończy się commitem. Wiadomości commitów po angielsku, tryb rozkazujący.
 
-**Grepy weryfikacyjne wykluczają, nigdy nie wyliczają.** Nie podawaj ani listy katalogów, ani listy rozszerzeń — wyłącznie wykluczenia: `-I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .`
+**Grepy weryfikacyjne wykluczają, nigdy nie wyliczają.** Nie podawaj ani listy katalogów, ani listy rozszerzeń — wyłącznie wykluczenia: `-I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json .`
 
 `-I` pomija pliki binarne. Bez niego lokalna baza `data/cc.db` trafia w każdy wzorzec zawierający nazwę kolumny i bramka jest nieprzechodnia w każdym drzewie, w którym aplikacja choć raz wstała. **Nie zastępuj tego `--exclude-dir=data`** — to byłaby regresja: `data/global-settings.json` musi zostać w zasięgu, bo właśnie tam raz znaleziono utrwalone ustawienia usuniętych agentów.
+
+**`--exclude-dir=assets` zostało z tego przepisu usunięte i nie wolno go przywrócić.** Miało pomijać binarne assety projektów użytkownika (`data/projects/*/assets/`), ale `--exclude-dir` dopasowuje nazwę katalogu na każdym poziomie — więc wycinało też `app/api/assets/`, czyli **kod źródłowy trzech tras API**. Kosztowało to przeoczenie w Task 10: grep weryfikacyjny nie mógł zobaczyć czwartej i siódmej kopii logiki ścieżki projektu, bo obie leżały w `app/api/assets/`, dokładnie w katalogu, którego to zadanie dotyczyło. Binarne assety pomija już `-I`; ta wykluczka nie dawała nic poza dziurą nad polem rażenia zadania.
+
+To piąte przeoczenie tej samej klasy w tym runie i znowu **nie wzorzec był zły, a wskazanie miejsca**. Reguła, która z tego wynika: wykluczaj wyłącznie to, czego treść nie jest kodem (`node_modules`, `.next`, `.git`, `.flow`, lockfile) i pozwól `-I` załatwić binaria. Każda wykluczka nazwana rzeczownikiem z domeny aplikacji (`assets`, `data`, `public`, `uploads`) trafi w katalog źródłowy o tej samej nazwie.
 
 Powód jest empiryczny i kosztował już cztery przeoczenia w tym runie, wszystkie tej samej klasy: wzorzec był poprawny, a dziurą było **wskazanie miejsca**. Handler WebSocket leżał w `pages/`, którego lista katalogów nie obejmowała. Domyślne ustawienia z usuniętymi agentami leżały w `contexts/`, którego też nie. Pierwsza próba naprawy zamieniła listę katalogów na listę rozszerzeń — i natychmiast przepuściła `.md`, `.prisma`, `.yml`, `Dockerfile*` oraz `data/global-settings.json`, czyli dokładnie ten artefakt, o który chodziło w poprzednim znalezisku.
 
@@ -506,7 +510,7 @@ npm uninstall ws @types/ws
 
 Run:
 ```bash
-grep -rnE "useWebSocket|websocketManager|websocket-manager|WEBSOCKET_CONFIG|NEXT_PUBLIC_WS_BASE|ensureHeartbeat|isConnecting|enableSseFallback|recoverMissingMessages|connectToProjectWebSocket|new WebSocket|/api/ws|from 'ws'" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json . 2>/dev/null
+grep -rnE "useWebSocket|websocketManager|websocket-manager|WEBSOCKET_CONFIG|NEXT_PUBLIC_WS_BASE|ensureHeartbeat|isConnecting|enableSseFallback|recoverMissingMessages|connectToProjectWebSocket|new WebSocket|/api/ws|from 'ws'" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json . 2>/dev/null
 ```
 Expected: brak wyników (katalog `pages` już nie istnieje, dlatego `2>/dev/null`).
 
@@ -606,7 +610,7 @@ W `lib/services/service-integration.ts` usuń gałęzie i mapy dotyczące `verce
 
 Run (grep zawężony do warstwy integracji):
 ```bash
-grep -rniE "(from|import).*(vercel|supabase)|VercelProjectModal|SupabaseModal|services/vercel|services/supabase" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rniE "(from|import).*(vercel|supabase)|VercelProjectModal|SupabaseModal|services/vercel|services/supabase" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json .
 ```
 Expected: brak wyników. Osobno usuń link `vercel.com/templates` z treści strony szablonu w `lib/utils/scaffold.ts` — Task 16 przenosi ten plik i zakłada, że linku już nie ma.
 
@@ -738,7 +742,7 @@ W `app/api/chat/[project_id]/act/route.ts`:
 
 Run:
 ```bash
-grep -rn "codexModels\|cursorModels\|qwenModels\|glmModels\|cli/codex\|cli/cursor\|cli/qwen\|cli/glm" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "codexModels\|cursorModels\|qwenModels\|glmModels\|cli/codex\|cli/cursor\|cli/qwen\|cli/glm" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json .
 ```
 Expected: brak wyników. Nazwy agentów jako **wartości** (`'codex'` w `CLI_OPTIONS`, badge'e w UI) zostają do Task 6 — nie goń ich tutaj.
 
@@ -844,13 +848,13 @@ Bez tego kroku `type-check` w kroku 7 padnie na zerwanym imporcie. Task 15 przep
 
 Run:
 ```bash
-grep -rn "useCLI\|cliOptions\|ACTIVE_CLI\|CLI_OPTIONS\|preferredCli\|preferred_cli\|fallbackEnabled\|fallback_enabled\|cli-preference" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "useCLI\|cliOptions\|ACTIVE_CLI\|CLI_OPTIONS\|preferredCli\|preferred_cli\|fallbackEnabled\|fallback_enabled\|cli-preference" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json .
 ```
 Expected: **wyłącznie** `prisma/schema.prisma` (kolumny `preferred_cli` i `fallback_enabled` — zdejmuje je Task 7). Zero trafień w kodzie. Każde inne trafienie znaczy, że zadanie nie jest skończone.
 
 Run (powtórka grepu z Task 5, teraz musi być czysty):
 ```bash
-grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "codex\|Codex\|qwen\|Qwen\|glm\|GLM\|gemini\|Gemini" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json .
 ```
 Expected: **wyłącznie** `README.md` (dokumentacja usuniętych agentów — Task 22) oraz `prisma/schema.prisma` (komentarze przy `preferred_cli` i `cliType` — Task 12). Zero trafień w kodzie aplikacji. Każde inne trafienie znaczy, że zadanie nie jest skończone.
 
@@ -4050,6 +4054,14 @@ Run: otwórz `http://localhost:3000`, utwórz projekt i wyślij prompt. Potem:
 ```bash
 docker compose logs claudable | grep -A 20 "Session initialized"
 ```
+**Kolumna `Project.repoPath` przy zmianie montowania jest przestarzała — sprawdź to, zanim uznasz mount za działający.** `repoPath` trzyma **absolutną ścieżkę hosta**, zapisywaną raz przy tworzeniu projektu (`lib/services/project.ts:60`). W kontenerze, gdzie `PROJECTS_DIR=/data/projects`, każdy wcześniej utworzony wiersz wskazuje na ścieżkę, której w kontenerze nie ma — a to `repoPath` jest źródłem prawdy dla katalogu roboczego agenta (`app/api/chat/[project_id]/act/route.ts:227`) i dla preview (`lib/services/preview.ts:622`, `:701`).
+
+Objaw jest cichy i mylący: aplikacja wstaje, lista projektów się renderuje (bo pochodzi z bazy, nie z dysku), a agent i preview padają na katalogu, którego nie ma. Nie zdiagnozujesz tego po logu startowym.
+
+Nie zgaduj, którą ścieżkę wybrać — **rozstrzygnij dowodem, przy starcie**: jeżeli `repoPath` nie istnieje na dysku, a `PROJECTS_DIR/<id>` istnieje, przepisz `repoPath`. Odwrotnie nie ruszaj. To ta sama figura co `reconcileStalePreviews` z Task 11 (stan w bazie kłamie po restarcie, więc weryfikujemy go przy starcie), więc dołóż to obok, w `instrumentation-node.ts`, a nie jako osobny mechanizm. Wariant „zawsze licz z `PROJECTS_DIR`, ignoruj `repoPath`" jest prostszy, ale zepsułby przypadek, w którym pliki **nie** przeniosły się razem z `PROJECTS_DIR` — a wtedy `repoPath` jest jedyną poprawną wskazówką.
+
+Kontekst z Task 10, żebyś nie szukał: logika ścieżki projektu jest już w jednym miejscu (`lib/utils/project-path.ts`, `resolveProjectRoot(projectId, repoPath?)`), a ścieżki assetów są tam świadomie liczone **bez** `repoPath` — zawsze `PROJECTS_DIR/<id>/assets` — bo tak liczą je wszystkie trasy zapisujące assety i czytająca musiała się z nimi zgodzić. Jedyna kopia tej logiki poza tym modułem siedzi w `lib/services/github.ts:125`, nietknięta z mocy Global Constraints.
+
 **Sprawdź, czy `docker stop` faktycznie dosięga procesu serwera.** To jedyny sposób, w jaki naprawa z Task 9 może być w kontenerze całkowicie martwa przy zielonym kodzie. Jeśli obraz startuje przez `sh -c` bez `exec` albo przez `npm start`, SIGTERM trafia w wrappera na PID 1, handler sygnałów nie odpala i dev-servery preview zostają — dokładnie ten sam mechanizm, który w trybie dev omijał `scripts/run-web.js` przed jego naprawą.
 
 Dwie rzeczy do **zobaczenia**, nie założenia:
@@ -4143,7 +4155,7 @@ Zachowaj wyliczenia `resolvedModel`, `modelLabel` i `aliasNote` — są używane
 
 Run:
 ```bash
-grep -rn "📸\|🖼️\|🔄 \[HandlerSetup\]" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude-dir=assets --exclude=package-lock.json .
+grep -rn "📸\|🖼️\|🔄 \[HandlerSetup\]" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json .
 ```
 Expected: brak wyników
 
