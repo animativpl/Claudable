@@ -1,7 +1,7 @@
 export type ClaudeModelId =
-  | 'claude-opus-4-6'
-  | 'claude-sonnet-4-6'
-  | 'claude-haiku-4-5-20251001';
+  | 'claude-opus-5'
+  | 'claude-sonnet-5'
+  | 'claude-haiku-4-5';
 
 export interface ClaudeModelDefinition {
   id: ClaudeModelId;
@@ -17,80 +17,49 @@ export interface ClaudeModelDefinition {
 
 export const CLAUDE_MODEL_DEFINITIONS: ClaudeModelDefinition[] = [
   {
-    id: 'claude-opus-4-6',
-    name: 'Claude Opus 4.6',
+    id: 'claude-opus-5',
+    name: 'Claude Opus 5',
     description: 'The most intelligent model for building agents and coding',
     supportsImages: true,
     aliases: [
-      'claude-opus-4-6',
-      'claude-opus-4.6',
-      'claude-opus-4',
-      'claude-opus',
-      'opus-4-6',
-      'opus-4.6',
-      'opus-4',
-      'opus',
-      // Legacy aliases
-      'claude-opus-4-5-20251101',
-      'claude-opus-4-5',
-      'claude-opus-4.5',
-      'claude-opus-4-1-20250805',
-      'claude-opus-4-1',
-      'claude-opus-4.1',
-      'claude-3-opus',
-      'claude-3-opus-20240229',
-      'claude-3-opus-latest',
+      'claude-opus-5', 'claude-opus', 'opus-5', 'opus',
+      // Poprzednie generacje: rozwiązują się w górę, nie na default
+      'claude-opus-4-6', 'claude-opus-4.6',
+      'claude-opus-4-5-20251101', 'claude-opus-4-5', 'claude-opus-4.5',
+      'claude-opus-4-1-20250805', 'claude-opus-4-1', 'claude-opus-4.1',
+      'claude-opus-4', 'opus-4-6', 'opus-4.6', 'opus-4',
+      'claude-3-opus', 'claude-3-opus-20240229', 'claude-3-opus-latest',
     ],
   },
   {
-    id: 'claude-sonnet-4-6',
-    name: 'Claude Sonnet 4.6',
+    id: 'claude-sonnet-5',
+    name: 'Claude Sonnet 5',
     description: 'The best combination of speed and intelligence',
     supportsImages: true,
     aliases: [
-      'claude-sonnet-4-6',
-      'claude-sonnet-4.6',
-      'claude-sonnet-4',
-      'claude-sonnet',
-      'sonnet-4-6',
-      'sonnet-4.6',
-      'sonnet-4',
-      'sonnet',
-      // Legacy aliases
-      'claude-sonnet-4-5-20250929',
-      'claude-sonnet-4-5',
-      'claude-sonnet-4.5',
-      'claude-3.5-sonnet',
-      'claude-3-5-sonnet',
-      'claude-3-5-sonnet-20241022',
-      'claude-3-5-sonnet-latest',
+      'claude-sonnet-5', 'claude-sonnet', 'sonnet-5', 'sonnet',
+      'claude-sonnet-4-6', 'claude-sonnet-4.6',
+      'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5', 'claude-sonnet-4.5',
+      'claude-sonnet-4', 'sonnet-4-6', 'sonnet-4.6', 'sonnet-4',
+      'claude-3.5-sonnet', 'claude-3-5-sonnet',
+      'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-latest',
     ],
   },
   {
-    id: 'claude-haiku-4-5-20251001',
+    id: 'claude-haiku-4-5',
     name: 'Claude Haiku 4.5',
     description: 'The fastest model with near-frontier intelligence',
     supportsImages: true,
     aliases: [
-      'claude-haiku-4-5-20251001',
-      'claude-haiku-4-5',
-      'claude-haiku-4.5',
-      'claude-haiku-4',
-      'claude-haiku',
-      'haiku-4-5-20251001',
-      'haiku-4-5',
-      'haiku-4.5',
-      'haiku-4',
-      'haiku',
-      'claude-3-haiku',
-      'claude-3-haiku-20240307',
-      'claude-3-haiku-latest',
-      'claude-haiku-3.5',
+      'claude-haiku-4-5', 'claude-haiku-4.5', 'claude-haiku', 'haiku-4-5', 'haiku-4.5', 'haiku',
+      'claude-haiku-4-5-20251001', 'haiku-4-5-20251001',
+      'claude-haiku-4', 'haiku-4',
+      'claude-3-haiku', 'claude-3-haiku-20240307', 'claude-3-haiku-latest', 'claude-haiku-3.5',
     ],
   },
 ];
 
-export const CLAUDE_DEFAULT_MODEL: ClaudeModelId = 'claude-sonnet-4-6';
+export const CLAUDE_DEFAULT_MODEL: ClaudeModelId = 'claude-sonnet-5';
 
 const CLAUDE_MODEL_ALIAS_MAP: Record<string, ClaudeModelId> = CLAUDE_MODEL_DEFINITIONS.reduce(
   (map, definition) => {

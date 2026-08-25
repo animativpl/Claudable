@@ -26,7 +26,7 @@ describe('loadGlobalSettings', () => {
       path.join(tempDir, 'global-settings.json'),
       JSON.stringify({
         default_cli: 'claude',
-        cli_settings: { claude: { model: 'claude-sonnet-5' } },
+        cli_settings: { claude: { model: 'claude-haiku-4-5' } },
       }),
       'utf8'
     );
@@ -36,6 +36,6 @@ describe('loadGlobalSettings', () => {
     const settings = await loadGlobalSettings();
 
     expect(settings).not.toHaveProperty('default_cli');
-    expect(settings.cli_settings.claude?.model).toBe('claude-sonnet-5');
+    expect(settings.cli_settings.claude?.model).toBe('claude-haiku-4-5');
   });
 });

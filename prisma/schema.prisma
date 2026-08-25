@@ -35,7 +35,7 @@ model Project {
   activeClaudeSessionId String? @map("active_claude_session_id")
 
   // CLI Preferences
-  selectedModel String? @map("selected_model") // znormalizowane id modelu Claude
+  selectedModel String? @map("selected_model") // claude-opus-5 | claude-sonnet-5 | claude-haiku-4-5
 
   // Settings (JSON)
   settings    String? // JSON string for additional settings
@@ -83,7 +83,7 @@ model Message {
   commitSha String? @map("commit_sha")
 
   // CLI source
-  cliSource String? @map("cli_source") // claude, cursor, etc.
+  cliSource String? @map("cli_source") // claude
 
   // Request ID for client-server message matching
   requestId String? @map("request_id")
@@ -110,7 +110,7 @@ model Session {
 
   // Session info
   sessionType String   @map("session_type") // chat, code_gen, error_fix
-  cliType     String   @map("cli_type") // claude, cursor, codex, gemini, qwen
+  cliType     String   @map("cli_type") // claude
   sessionId   String   @map("session_id") // Actual CLI session ID
   modelName   String?  @map("model_name")
 
@@ -138,13 +138,11 @@ model ProjectServiceConnection {
   projectId String   @map("project_id")
 
   // Service info
-  provider     String // github, vercel, supabase
+  provider     String // github
   status       String @default("connected") // connected, disconnected, error
 
   // Service data (JSON)
   // GitHub: { repo_url, repo_name, default_branch }
-  // Vercel: { deployment_url, project_id, auto_deploy }
-  // Supabase: { project_url, project_id, database_name }
   serviceData  String @map("service_data")
 
   // Timestamps
@@ -263,7 +261,7 @@ model ServiceToken {
   id       String   @id @default(cuid())
 
   // Service info
-  provider String // github, vercel, supabase
+  provider String // github
   name     String // User-defined name
   token    String // Access token (plain text - local only)
 
