@@ -90,4 +90,15 @@ describe('buildClaudeQueryOptions', () => {
       else process.env.CLAUDE_CODE_OAUTH_TOKEN = previousOauthToken;
     }
   });
+
+  it('przekazuje wczytanych subagentów', () => {
+    const agents = { reviewer: { description: 'd', prompt: 'p' } };
+    const options = buildClaudeQueryOptions({ ...input, agents });
+    expect(options.agents).toEqual(agents);
+  });
+
+  it('pomija pole agents, gdy nic nie wczytano', () => {
+    expect(buildClaudeQueryOptions(input).agents).toBeUndefined();
+    expect(buildClaudeQueryOptions({ ...input, agents: {} }).agents).toBeUndefined();
+  });
 });

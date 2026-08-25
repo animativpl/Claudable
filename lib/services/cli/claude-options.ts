@@ -1,4 +1,4 @@
-import type { Options } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition, Options } from '@anthropic-ai/claude-agent-sdk';
 
 // Zmienne, które muszą przeżyć scrub mimo pasowania do prefiksu CLAUDE_:
 // CLAUDE_CONFIG_DIR wskazuje zamontowany katalog konfiguracyjny (bez niego
@@ -32,6 +32,7 @@ export interface BuildClaudeOptionsInput {
   projectPath: string;
   model: string;
   sessionId?: string;
+  agents?: Record<string, AgentDefinition>;
 }
 
 /**
@@ -57,5 +58,6 @@ export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options
     // z dysku nic.
     settingSources: ['user', 'project', 'local'],
     env: childEnv(),
+    ...(input.agents && Object.keys(input.agents).length > 0 ? { agents: input.agents } : {}),
   };
 }

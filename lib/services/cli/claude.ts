@@ -19,8 +19,11 @@ import {
   markUserRequestAsFailed,
 } from '@/lib/services/user-requests';
 import { buildClaudeQueryOptions } from './claude-options';
+import { loadAgentDefinitions } from './agents-loader';
+import { resolveClaudeConfigDir } from './claude-config-dir';
 import { summarizeInitPayload } from './init-payload';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
+import path from 'path';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -690,6 +693,15 @@ export async function executeClaude(
     // Start Claude Agent SDK query
     console.log(`[ClaudeService] 🤖 Querying Claude Agent SDK...`);
     console.log(`[ClaudeService] 📁 Working Directory: ${absoluteProjectPath}`);
+    // settingSources wnosi skille, hooki, MCP i CLAUDE.md z dysku, ale nie
+    // definicje subagentów — te trafiają do sesji wyłącznie przez `agents`.
+    const agents = await loadAgentDefinitions([
+      path.join(resolveClaudeConfigDir(), 'agents'),
+      path.join(absoluteProjectPath, '.claude', 'agents'),
+    ]);
+    if (Object.keys(agents).length > 0) {
+      console.log(`[ClaudeService] Loaded ${Object.keys(agents).length} subagent definition(s)`);
+    }
     const response = query({
       prompt: instruction,
       options: {
@@ -697,6 +709,7 @@ export async function executeClaude(
           projectPath: absoluteProjectPath,
           model: resolvedModel,
           sessionId,
+          agents,
         }),
         // Capture SDK stderr so we can surface real errors instead of just exit code
         stderr: (data: string) => {
