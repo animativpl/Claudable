@@ -28,7 +28,6 @@
     "db:backup": "node -e \"require('./scripts/migrate-drop-legacy.js').runBackupCli()\"",
     "db:migrate-legacy": "node scripts/migrate-drop-legacy.js",
     "setup": "npm install && prisma generate && prisma db push",
-    "check-cli": "node scripts/check-claude-cli.js",
     "postinstall": "npm run ensure:env"
   },
   "dependencies": {
