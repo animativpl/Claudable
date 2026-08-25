@@ -822,7 +822,7 @@ export default function HomePage() {
                 </h1>
               </div>
               <p className="text-xl text-gray-700 font-light tracking-tight">
-                Connect CLI Agent • Build what you want • Deploy instantly
+                Connect CLI Agent • Build what you want • Preview instantly
               </p>
             </div>
             

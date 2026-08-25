@@ -2,7 +2,7 @@
 
 <img src="https://storage.googleapis.com/claudable-assets/Claudable.png" alt="Claudable" style="width: 100%;" />
 <div align="center">
-<h3>Connect CLI Agent • Build what you want • Deploy instantly</h3>
+<h3>Connect CLI Agent • Build what you want • Preview instantly</h3>
 </div>
 <p align="center">
 <a href="https://github.com/hesreallyhim/awesome-claude-code">
@@ -27,50 +27,30 @@
 
 ## What is Claudable?
 
-Claudable is a powerful Next.js-based web app builder that combines **C**laude Code's (Cursor CLI also supported!) advanced AI agent capabilities with **Lovable**'s simple and intuitive app building experience. Just describe your app idea - "I want a task management app with dark mode" - and watch as Claudable instantly generates the code and shows you a live preview of your working app. You can deploy your app to Vercel and integrate database with Supabase for free.
+Claudable is a powerful Next.js-based web app builder that combines **C**laude Code's advanced AI agent capabilities with **Lovable**'s simple and intuitive app building experience. Just describe your app idea - "I want a task management app with dark mode" - and watch as Claudable instantly generates the code and shows you a live preview of your working app.
 
-This open-source project empowers you to build and deploy professional web applications easily for **free**.
+This open-source project empowers you to build professional web applications easily for **free**.
 
-How to start? Simply login to Claude Code (or Cursor CLI), start Claudable, and describe what you want to build. That's it. There is no additional subscription cost for app builder.
+How to start? Simply login to Claude Code, start Claudable, and describe what you want to build. That's it. There is no additional subscription cost for app builder.
 
 ## Features
 
 ![Claudable Demo](assets/gif/Claudable_v2_cc_4_1080p.gif)
 
-- **Powerful Agent Performance**: Leverage the full power of Claude Code and Cursor CLI Agent capabilities
+- **Powerful Agent Performance**: Leverage the full power of Claude Code's agent capabilities
 - **Natural Language to Code**: Simply describe what you want to build, and Claudable generates production-ready Next.js code
 - **Instant Preview**: See your changes immediately with hot-reload as AI builds your app
 - **Zero Setup, Instant Launch**: No complex sandboxes, no API key, no database headaches - just start building immediately
 - **Beautiful UI**: Generate beautiful UI with Tailwind CSS and shadcn/ui
-- **Deploy to Vercel**: Push your app live with a single click, no configuration needed
-- **GitHub Integration**: Automatic version control and continuous deployment setup
-- **Supabase Database**: Connect production PostgreSQL with authentication ready to use
+- **GitHub Integration**: Automatic version control — create or connect a repository and push commits as you build
 - **Desktop App**: Available as Electron desktop application for Mac, Windows, and Linux
-
-## Demo Examples
-
-### Codex CLI Example
-
-![Codex CLI Demo](assets/gif/Claudable_v2_codex_1_1080p.gif)
-
-### Qwen Code Example
-
-![Qwen Code Demo](assets/gif/Claudable_v2_qwen_1_1080p.gif)
 
 ## Supported AI Coding Agents
 
-Claudable supports multiple AI coding agents, giving you the flexibility to choose the best tool for your needs:
-
-- **Claude Code** - Anthropic's advanced AI coding agent
-- **Codex CLI** - OpenAI's powerful coding agent
-- **Cursor CLI** - Powerful multi-model AI agent
-- **Qwen Code** - Alibaba's open-source coding CLI
-- **Z.AI GLM-4.6** - Zhipu AI's coding agent
-
-### Claude Code (Recommended)
-**[Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)** - Anthropic's advanced AI coding agent with Claude Opus 4.6
+### Claude Code
+**[Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)** - Anthropic's advanced AI coding agent
 - **Features**: Deep codebase awareness, Unix philosophy, direct terminal integration
-- **Context**: Native 200k tokens
+- **Context**: 1M tokens (`claude-opus-5`, `claude-sonnet-5`), 200K tokens (`claude-haiku-4-5`)
 - **Pricing**: Included with Claude Pro/Max/Team/Enterprise plans, or Anthropic API key
 - **Installation**:
   ```bash
@@ -78,59 +58,11 @@ Claudable supports multiple AI coding agents, giving you the flexibility to choo
   claude  # then > /login
   ```
 
-### Codex CLI
-**[Codex CLI](https://github.com/openai/codex)** - OpenAI's powerful coding agent with GPT-5 support
-- **Features**: High reasoning capabilities, local execution, multiple operating modes (interactive, auto-edit, full-auto)
-- **Context**: Varies by model
-- **Pricing**: Included with ChatGPT Plus/Pro/Business/Edu/Enterprise plans (from $20/month)
-- **Installation**:
-  ```bash
-  npm install -g @openai/codex
-  codex  # login with ChatGPT account
-  ```
-
-### Cursor CLI
-**[Cursor CLI](https://cursor.com/en/cli)** - Powerful AI agent with access to cutting-edge models
-- **Features**: Multi-model support (Anthropic, OpenAI), AGENTS.md support
-- **Context**: Model dependent
-- **Pricing**: Free tier available, Pro from $20/month (credit-based system)
-- **Installation**:
-  ```bash
-  curl https://cursor.com/install -fsS | bash
-  cursor-agent login
-  ```
-
-### Qwen Code
-**[Qwen Code](https://github.com/QwenLM/qwen-code)** - Alibaba's open-source CLI for Qwen3-Coder models
-- **Features**: 256K-1M token context, multiple model sizes (0.5B to 480B), Apache 2.0 license
-- **Context**: 256K native, 1M with extrapolation
-- **Pricing**: Completely free and open-source
-- **Installation**:
-  ```bash
-  npm install -g @qwen-code/qwen-code@latest
-  qwen --version
-  ```
-
-### Z.AI GLM-4.6
-**[Z.AI GLM-4.6](https://z.ai/subscribe)** - Zhipu AI's coding agent powered by GLM-4.6
-- **Features**: Strong reasoning capabilities and cost-efficient, code generation and understanding
-- **Context**: 200K tokens
-- **Pricing**: Starting from $3/month (GLM Coding Lite) to $30/month (GLM Coding Max), with 50% off first month
-- **Installation**: See [Quick Start Guide](https://docs.z.ai/devpack/quick-start)
-
-## Technology Stack
-
-**Database & Deployment:**
-- **[Supabase](https://supabase.com/)**: Connect production-ready PostgreSQL database directly to your project.
-- **[Vercel](https://vercel.com/)**: Publish your work immediately with one-click deployment
-
-**There is no additional subscription cost and built just for YOU.**
-
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:
 - Node.js 18+
-- Claude Code or Cursor CLI (already logged in)
+- Claude Code (already logged in)
 - Git
 
 ## Quick Start
@@ -153,12 +85,96 @@ Your application will be available at http://localhost:3000
 
 **Note**: Ports are automatically detected. If the default port is in use, the next available port will be assigned.
 
-## Troubleshooting
-- **Database migration conflicts**: If you upgraded from a previous Claudable version and run into database errors, reset the Prisma database so it matches the latest schema:
-  ```bash
-  npm run prisma:reset
-  ```
-  The command drops and recreates the local database, so back up any data you need before running it.
+## Docker
+
+Run Claudable in a container instead of on the host.
+
+```bash
+cp .env.docker.example .env.docker
+# fill in ENCRYPTION_KEY and HOST_UID/HOST_GID — see the comments in the file
+docker compose --env-file .env.docker up --build -d
+```
+
+`--env-file .env.docker` is required, not optional. Compose only interpolates
+`${...}` placeholders in `docker-compose.yml` from the shell environment and
+from its interpolation file (`.env` by default) — never from a service's
+`env_file:` entry. Without the flag, `HOST_UID`/`HOST_GID` never reach the
+`user:` directive, and Compose refuses to start with a message that names the
+missing variable and the flag needed to fix it. This is deliberate: a silent
+default previously produced a container running under the wrong uid that took
+ownership of files in the mounted `.claude` directory.
+
+- **`HOST_UID` / `HOST_GID`**: left blank in `.env.docker.example` on purpose
+  — a filled-in number looks like a deliberate choice, and nothing would tell
+  you it wasn't yours. Get your own with `id -u` and `id -g`.
+- **`ENCRYPTION_KEY`**: secrets go through `.env.docker`, a file outside the
+  repository (git-ignored).
+- **Ports**: published on `127.0.0.1` only. The app has no authentication and
+  gives the agent a Bash tool, so exposing it on every network interface
+  would be remote code execution for anyone on the same network. Reaching it
+  from another machine requires an explicit override of the port mapping.
+- **Preview slots**: 32 of them (`3100`–`3131`). A 33rd concurrent preview
+  fails loudly with a "no free port" error — that's the limit of the feature,
+  not a documentation gap.
+- **Node version**: the image requires Node ≥ 22.12 (the generated projects'
+  `astro@7` refuses to start below that). This is separate from this
+  project's own `engines.node` (`>=20.0.0` in `package.json`) — one is the
+  platform Claudable itself runs on, the other is the runtime it hands to
+  generated projects inside the container.
+
+### What you get from the mounted `.claude`
+
+Skills, subagents, `CLAUDE.md`, commands, and hooks all pass through from the
+mounted host `.claude` directory — measured on this branch: skills 5→24,
+commands 15→36, subagents 4→10, and a deny-type hook actually blocked a write
+attempted by the agent inside the container.
+
+Two things don't have full parity:
+- **MCP servers configured locally do not pass through.** Claude Code keeps
+  them in `~/.claude.json`, outside the `.claude` directory that gets
+  mounted. MCP servers configured on a claude.ai account load normally. This
+  is a known limitation, not a dead end — the Claude Agent SDK exposes an
+  `mcpServers` option that could wire local servers through, but doing so is
+  separate work.
+- **Hook parity is 11 of 12.** The twelfth hook entry in a user's
+  `settings.json` has an absolute host path with no container equivalent
+  under any mount layout, so it doesn't fire inside the container.
+
+### Updating an existing installation
+
+Two pitfalls when running `docker compose up` against a `./data` directory
+that already exists from before:
+
+- **`data/home` must exist before the first `docker compose up`.**
+  `scripts/setup-env.js` creates it, so running the install once
+  (`npm install`) is enough. If it's missing on an existing `./data`, the
+  container still comes up, but `~/.claude.json` inside it is unwritable —
+  a silent failure. On a clean checkout with no `./data` at all, the
+  container exits with code 1 instead — a loud one.
+- **A stale `.env.local` can win over `.env`.** An installation from before
+  Docker support may have a frozen `.env.local` (for example
+  `PREVIEW_PORT_END=3999`) that some loading paths prefer over `.env`.
+  `scripts/setup-env.js` prunes its managed keys from `.env.local`
+  automatically on `npm install`. If the file has a value that spans
+  multiple lines or an unterminated quote, it deliberately leaves the file
+  untouched and prints a warning instead — fix those by hand. `.env` is now
+  the only place to pin values; a pin left in `.env.local` will stop taking
+  effect.
+
+Two smaller things worth knowing:
+- The npm cache lives on the data mount (`/data/.npm`) and grows by hundreds
+  of megabytes as projects install dependencies. That's expected, not a leak.
+- After `docker compose down`, an empty `data/home/.claude` directory owned
+  by root is left behind. It's harmless and can be removed by hand.
+
+### What's been verified
+
+The image was built and run end-to-end on arm64. x86_64 has not been
+verified — no QEMU was available to test it, so don't assume it works.
+
+Asset mirroring (serving a project's uploaded assets back through the app)
+works under normal conditions, but under a host/container uid mismatch it
+degrades silently to a missing `publicUrl` instead of failing loudly.
 
 ## Setup
 
@@ -188,10 +204,10 @@ npm run package:linux    # Linux
 ### Additional Commands
 ```bash
 npm run db:backup   # Create a backup of your SQLite database
-                    # Use when: Before major changes or deployments
+                    # Use when: Before major changes or upgrades
                     # Creates: data/backups/cc_backup_[timestamp].db
 
-npm run db:reset    # Reset database to initial state
+npm run prisma:reset # Reset database to initial state
                     # Use when: Need fresh start or corrupted data
                     # Warning: This will delete all your data!
 
@@ -209,13 +225,43 @@ npm run clean       # Remove all dependencies
 2. **Describe Your Project**: Use natural language to describe what you want to build
 3. **AI Generation**: Watch as the AI generates your project structure and code
 4. **Live Preview**: See changes instantly with hot reload functionality
-5. **Deploy**: Push to production with Vercel integration
 
 ### Database Operations
 
 Claudable uses SQLite for local development. The database automatically initializes on first run.
 
 ## Troubleshooting
+
+### Upgrading from a Previous Version
+
+This branch drops three columns from the `Project` model. On an existing
+installation, the next `npm run dev` runs `prisma db push` without a
+data-loss flag, so Prisma asks for confirmation: an interactive terminal
+gets a prompt, a non-interactive one gets an error. Nothing is deleted
+silently — but the fix isn't written down anywhere else, so run this first:
+
+```bash
+npm run db:backup          # copies your database to data/backups/, exits non-zero if there's nothing to copy
+npm run db:migrate-legacy  # removes rows for providers the product no longer supports (Vercel, Supabase)
+npx prisma db push --accept-data-loss
+```
+
+`--accept-data-loss` is safe here: the columns being dropped are no longer
+read by anything, and the backup step above already ran. It is deliberately
+**not** part of the automatic startup path — there, any future schema drift
+would silently delete data without asking.
+
+### Database Migration Conflicts
+
+If the steps above don't apply and you still hit database errors, reset the
+Prisma database so it matches the latest schema:
+
+```bash
+npm run prisma:reset
+```
+
+The command drops and recreates the local database, so back up any data you
+need before running it.
 
 ### Port Already in Use
 
@@ -256,18 +302,6 @@ If you encounter the error: `Error output dangerously skip permissions cannot be
 **Get Token:** [GitHub Personal Access Tokens](https://github.com/settings/tokens) → Generate new token (classic) → Select `repo` scope
 
 **Connect:** Settings → Service Integrations → GitHub → Enter token → Create or connect repository
-
-### Vercel  
-**Get Token:** [Vercel Account Settings](https://vercel.com/account/tokens) → Create Token
-
-**Connect:** Settings → Service Integrations → Vercel → Enter token → Create new project for deployment
-
-### Supabase
-**Get Credentials:** [Supabase Dashboard](https://supabase.com/dashboard) → Your Project → Settings → API
-- Project URL: `https://xxxxx.supabase.co`  
-- Anon Key: Public key for client-side
-- Service Role Key: Secret key for server-side
-
 
 ## License
 

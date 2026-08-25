@@ -441,7 +441,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                       </div>
-                      <p className="text-xs font-medium text-gray-700 ">Fast Deploy</p>
+                      <p className="text-xs font-medium text-gray-700 ">Instant Preview</p>
                     </div>
                     <div className="p-3 rounded-xl border border-gray-200/50 bg-transparent">
                       <div className="flex items-center justify-center mb-2">

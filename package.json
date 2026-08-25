@@ -27,6 +27,7 @@
     "prisma:reset": "prisma migrate reset",
     "db:backup": "node -e \"require('./scripts/migrate-drop-legacy.js').runBackupCli()\"",
     "db:migrate-legacy": "node scripts/migrate-drop-legacy.js",
+    "clean": "rm -rf node_modules package-lock.json",
     "setup": "npm install && prisma generate && prisma db push",
     "postinstall": "npm run ensure:env"
   },
