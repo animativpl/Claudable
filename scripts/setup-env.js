@@ -14,8 +14,13 @@ const crypto = require('crypto');
 
 const rootDir = path.join(__dirname, '..');
 const envFile = path.join(rootDir, '.env');
+const envLocalFile = path.join(rootDir, '.env.local');
 const rootDataDir = path.join(rootDir, 'data');
 const projectsDir = path.join(rootDataDir, 'projects');
+// HOME kontenera (obraz ustawia HOME=/data/home). Brakujące katalogi
+// bind-mountu tworzy demon Dockera jako root i takie zostają na hoście, więc
+// muszą powstać wcześniej i pod użytkownikiem.
+const homeDataDir = path.join(rootDataDir, 'home');
 const prismaDataDir = path.join(rootDir, 'prisma', 'data');
 const sqlitePath = path.join(rootDataDir, 'cc.db');
 
@@ -65,6 +70,42 @@ function hasEnvKey(contents, key) {
   if (!contents) return false;
   const pattern = new RegExp(`^${escapeRegExp(key)}=`, 'm');
   return pattern.test(contents);
+}
+
+// Klucze, które ten skrypt pisał kiedyś do `.env.local`. Dziś liczy je do
+// `.env`, ale zastana instalacja wciąż trzyma zamrożoną kopię — a `.env.local`
+// bije `.env` u własnego loadera Nexta (`next build`, `next start`) i w
+// `scripts/migrate-drop-legacy.js` (`override: true`). Bez tego sprzątania
+// stare `PREVIEW_PORT_END=3999` wygrywa z zakresem policzonym niżej.
+const LEGACY_ENV_LOCAL_KEYS = [
+  'NEXT_PUBLIC_APP_URL',
+  'PORT',
+  'WEB_PORT',
+  'PREVIEW_PORT_START',
+  'PREVIEW_PORT_END',
+];
+
+const ENV_KEY_LINE = /^\s*([A-Za-z_][A-Za-z0-9_]*)=/;
+
+function pruneLegacyEnvLocal() {
+  const contents = readFileSafe(envLocalFile);
+  if (!contents.trim()) return;
+
+  const lines = contents.split('\n');
+  const kept = lines.filter((line) => {
+    const match = line.match(ENV_KEY_LINE);
+    return !(match && LEGACY_ENV_LOCAL_KEYS.includes(match[1]));
+  });
+  if (kept.length === lines.length) return;
+
+  const relative = path.relative(rootDir, envLocalFile);
+  if (kept.some((line) => ENV_KEY_LINE.test(line))) {
+    writeFileSafe(envLocalFile, kept.join('\n'));
+    console.log(`\u{1F9F9} Dropped stale keys from ${relative}; .env is the source now.`);
+  } else {
+    fs.unlinkSync(envLocalFile);
+    console.log(`\u{1F9F9} Removed stale ${relative}; .env is the source now.`);
+  }
 }
 
 function ensureDirectory(dirPath) {
@@ -185,6 +226,7 @@ async function ensureEnvironment(options = {}) {
   // Ensure required directories/files exist
   ensureDirectory(rootDataDir);
   ensureDirectory(projectsDir);
+  ensureDirectory(homeDataDir);
   ensureDirectory(prismaDataDir);
   ensureFile(sqlitePath);
 
@@ -286,6 +328,8 @@ async function ensureEnvironment(options = {}) {
   }
   writeFileSafe(envFile, updatedEnv);
   console.log(`📝 Updated ${path.relative(rootDir, envFile)}`);
+
+  pruneLegacyEnvLocal();
 
   // `.env.local` is no longer generated. Every key this script used to write
   // there was computed from `.env` and written to `.env` too, so the copy only

@@ -82,6 +82,28 @@ describe('reconcileProjectPaths', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  // Jeden zły wiersz nie może unieważnić rekoncyliacji pozostałych.
+  // `resolveProjectRoot` rzuca przy id z `/`, `\\`, `.` lub `..`, a wyjątek
+  // rzucony w pętli uciekał do zewnętrznego `catch`: logował się raz i zwracał
+  // 0, zostawiając wszystkie dalsze projekty nierozliczone. Awaria cicha.
+  it('rozlicza pozostałe projekty, gdy jeden ma id nie do rozwiązania', async () => {
+    await fs.mkdir(path.join(projectsDir, 'moved'), { recursive: true });
+    findMany.mockResolvedValueOnce([
+      { id: '../escape', repoPath: '/dawna/sciezka/hosta/escape' },
+      { id: 'moved', repoPath: '/dawna/sciezka/hosta/moved' },
+    ]);
+
+    const { reconcileProjectPaths } = await import('@/lib/services/project');
+    const count = await reconcileProjectPaths();
+
+    expect(count).toBe(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'moved' },
+      data: { repoPath: path.join(projectsDir, 'moved') },
+    });
+  });
+
   it('zwraca zero i nie wybucha, gdy odczyt padnie (np. baza jeszcze nie istnieje)', async () => {
     findMany.mockRejectedValueOnce(new Error('no such table: projects'));
 

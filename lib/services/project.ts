@@ -183,23 +183,33 @@ export async function reconcileProjectPaths(): Promise<number> {
 
     let rewritten = 0;
     for (const project of projects) {
-      if (!project.repoPath) continue;
-      // eslint-disable-next-line no-await-in-loop
-      if (await directoryExists(project.repoPath)) continue;
+      // Per wiersz, nie per pętla: `resolveProjectRoot` rzuca przy id z `/`,
+      // `\\`, `.` lub `..`, a jeden taki wiersz zostawiłby wszystkie dalsze
+      // projekty nierozliczone — po cichu, bo `catch` niżej loguje raz.
+      try {
+        if (!project.repoPath) continue;
+        // eslint-disable-next-line no-await-in-loop
+        if (await directoryExists(project.repoPath)) continue;
 
-      const candidate = resolveProjectRoot(project.id);
-      // eslint-disable-next-line no-await-in-loop
-      if (!(await directoryExists(candidate))) continue;
+        const candidate = resolveProjectRoot(project.id);
+        // eslint-disable-next-line no-await-in-loop
+        if (!(await directoryExists(candidate))) continue;
 
-      // eslint-disable-next-line no-await-in-loop
-      await prisma.project.update({
-        where: { id: project.id },
-        data: { repoPath: candidate },
-      });
-      console.log(
-        `[ProjectService] Repointed project ${project.id}: ${project.repoPath} -> ${candidate}`
-      );
-      rewritten += 1;
+        // eslint-disable-next-line no-await-in-loop
+        await prisma.project.update({
+          where: { id: project.id },
+          data: { repoPath: candidate },
+        });
+        console.log(
+          `[ProjectService] Repointed project ${project.id}: ${project.repoPath} -> ${candidate}`
+        );
+        rewritten += 1;
+      } catch (error) {
+        console.error(
+          `[ProjectService] Skipped project ${project.id} while reconciling paths:`,
+          error
+        );
+      }
     }
 
     return rewritten;

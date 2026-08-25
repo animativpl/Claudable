@@ -1,24 +1,27 @@
 # Uruchomienie:
 #
 #   cp .env.docker.example .env.docker   # uzupełnij, patrz komentarze w środku
-#   mkdir -p data/home                   # patrz niżej — wymagane przed pierwszym startem
+#   mkdir -p data/home                   # zbędne po `npm install`, patrz niżej
 #   docker compose --env-file .env.docker up --build -d
 #
-# `mkdir -p data/home` nie jest ozdobne. Brakujące katalogi bind-mountu tworzy
-# demon Dockera, czyli root, i tak też je zostawia na hoście — a kontener
-# chodzi pod uid użytkownika. Zmierzone na czystym katalogu: `./data`
-# i `./data/home` powstają jako root:root, po czym kontener nie zapisze ani
-# bazy, ani projektów, ani `~/.claude.json` (HOME to `/data/home`). Objaw jest
-# mylący, bo aplikacja wstaje. Jeden `mkdir -p` załatwia oba poziomy; przy
-# ustawionym CLAUDABLE_DATA użyj `mkdir -p "$CLAUDABLE_DATA/home"`.
+# `data/home` musi istnieć i należeć do Ciebie, zanim ruszy pierwszy start:
+# brakujące katalogi bind-mountu tworzy demon Dockera, czyli root, i takie
+# zostają na hoście, a kontener chodzi pod uid użytkownika. Zmierzone:
+# na czystym katalogu (`./data` też nie ma) kontener kończy się kodem 1;
+# gdy `./data` jest, a `data/home` nie — aplikacja wstaje, ale HOME należy
+# do roota i `~/.claude.json` jest niezapisywalny, czyli awaria cicha.
+# `scripts/setup-env.js` tworzy dziś `data/home` razem z `data/projects`, więc
+# po `npm install` w repo krok ręczny odpada. Zostaje dla kogoś, kto klonuje
+# repo wyłącznie pod Dockera, oraz przy ustawionym CLAUDABLE_DATA:
+# `mkdir -p "$CLAUDABLE_DATA/home"`.
 #
 # `--env-file` jest wymagany, nie ozdobny. Compose podstawia `${...}` niżej
 # wyłącznie ze środowiska powłoki i z pliku interpolacji (domyślnie `./.env`),
 # a NIGDY z `env_file:` sekcji usługi — ta trafia dopiero do środowiska
 # kontenera. Bez tej flagi `HOST_UID`/`HOST_GID` z `.env.docker` są niewidoczne
-# dla `user:` niżej, kontener dostaje domyślne 1000:1000 i na hoście o innym
-# uid pliki w zamontowanym `.claude` zmieniają właściciela. Zmierzone: na uid
-# 1001 `docker compose up` bez flagi daje w kontenerze `uid=1000`.
+# dla `user:` niżej. Dlatego `user:` używa `${HOST_UID:?...}`: brak wartości
+# zatrzymuje `docker compose` z komunikatem, zamiast po cichu uruchomić
+# kontener pod cudzym uid.
 # Domyślne `./.env` tej roli pełnić nie może — trzyma konfigurację dev
 # (`DATABASE_URL` wskazujący ścieżkę hosta) i ma własnego generatora.
 services:
@@ -30,16 +33,27 @@ services:
     # KLUCZOWE: bez tego kontener działa jako root i po pierwszym odświeżeniu
     # tokenu OAuth pliki w zamontowanym katalogu .claude po stronie HOSTA
     # zmieniają właściciela na root — a wtedy `claude` w twoim terminalu
-    # przestaje działać. Ustaw HOST_UID/HOST_GID w .env.docker.
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    # przestaje działać.
+    #
+    # `:?` zamiast domyślnego 1000: zapomniany `--env-file` ma zatrzymać start,
+    # nie wyprodukować kontener z cudzym uid. Zmierzone na hoście o uid 1001:
+    # z domyślną wartością kontener wstawał jako 1000 i padał na `mkdir: cannot
+    # create directory '/data/.npm': Permission denied` — komunikat, który nie
+    # wymienia ani HOST_UID, ani --env-file. Tam, gdzie /data akurat jest
+    # zapisywalne dla 1000, ruszyłby i po cichu przejął pliki w mouncie .claude.
+    user: "${HOST_UID:?set HOST_UID in .env.docker (id -u) and start with: docker compose --env-file .env.docker up}:${HOST_GID:?set HOST_GID in .env.docker (id -g) and start with: docker compose --env-file .env.docker up}"
     env_file:
       - .env.docker
+    # Oba zakresy związane z 127.0.0.1, nie z 0.0.0.0. Aplikacja nie ma
+    # uwierzytelnienia i daje agentowi narzędzie Bash, więc publikacja na
+    # wszystkich interfejsach to zdalne wykonanie kodu dla każdego w tej samej
+    # sieci. Udokumentowany przepływ jest lokalny i nic na tym nie traci.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
       # 32 sloty preview. Ta sama liczba co PREVIEW_PORT_START/_END niżej
       # i co EXPOSE w obrazie; port przydzielony poza nią jest z hosta
       # nieosiągalny.
-      - "3100-3131:3100-3131"
+      - "127.0.0.1:3100-3131:3100-3131"
     environment:
       # HOME celowo NIE jest tu ustawiane — obraz ustawia `/data/home`, bo pod
       # dowolnym uid z `user:` nie ma wpisu w passwd i HOME wskazywałby na
