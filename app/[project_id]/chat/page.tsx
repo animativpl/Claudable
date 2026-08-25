@@ -1609,17 +1609,23 @@ const persistProjectPreferences = useCallback(
   }, []);
 
   // Auto-start the preview once the agent finishes its first run.
-  const prevIsRunningRef = useRef(false);
+  // `isRunning` is POST bookkeeping, not agent state: /act returns immediately
+  // and both senders clear it in `finally` right after the request returns, so
+  // its falling edge lands when the agent starts, not when it finishes. Gate on
+  // `hasActiveRequests` instead — it reflects the server-side UserRequest rows,
+  // i.e. whether a run is actually in flight.
+  const prevHasActiveRequestsRef = useRef(false);
   useEffect(() => {
-    const wasRunning = prevIsRunningRef.current;
-    prevIsRunningRef.current = isRunning;
-    // Falling edge only: the agent finished, as opposed to "the agent is idle".
-    if (!wasRunning || isRunning) return;
+    const wasActive = prevHasActiveRequestsRef.current;
+    prevHasActiveRequestsRef.current = hasActiveRequests;
+    // Falling edge only: the run disappeared from the active set, i.e. the
+    // agent actually finished.
+    if (!wasActive || hasActiveRequests) return;
     if (!hasInitialPrompt || agentWorkComplete || previewUrl) return;
     setAgentWorkComplete(true);
     localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
     start();
-  }, [isRunning, hasInitialPrompt, agentWorkComplete, previewUrl, projectId, start]);
+  }, [hasActiveRequests, hasInitialPrompt, agentWorkComplete, previewUrl, projectId, start]);
 
   // Handle project status updates via callback from ChatLog
   const handleProjectStatusUpdate = (status: string, message?: string) => {

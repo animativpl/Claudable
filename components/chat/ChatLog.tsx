@@ -1940,21 +1940,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       return;
     }
 
-    if (hasStreamingMessageRef.current) {
-      return;
-    }
-
-    // Only poll when SSE is disconnected
-    const shouldPoll = !isSseConnected;
-
-    if (!shouldPoll) {
-      if (historyPollRef.current) {
-        clearInterval(historyPollRef.current);
-        historyPollRef.current = null;
-      }
-      return;
-    }
-
     // Clear any existing interval
     if (historyPollRef.current) {
       clearInterval(historyPollRef.current);
@@ -1968,6 +1953,10 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
           clearInterval(historyPollRef.current);
           historyPollRef.current = null;
         }
+        return;
+      }
+
+      if (hasStreamingMessageRef.current) {
         return;
       }
 
@@ -2411,7 +2400,9 @@ const ToolResultMessage = ({
 
       publishHandlers({ add: addMessage, remove: removeMessage });
     }
-  }, []);
+  }, []); // Empty deps: reads onAddUserMessage from the ref, once, on mount —
+  // the parent must pass a non-null handler on the first render, or these
+  // handlers are never published.
 
   return (
     <div className="flex flex-col h-full bg-white ">
