@@ -47,8 +47,28 @@ describe('normalizeClaudeModelId', () => {
     ).toContain('claude-sonnet-4-6');
   });
 
+  it('opus-4-6 jest jawnym aliasem opus-5, nie tylko wynikiem defaultu', () => {
+    // Analogicznie do sonnet-4-6: gdyby CLAUDE_DEFAULT_MODEL kiedyś wskazywał na
+    // claude-opus-5, sama normalizeClaudeModelId('claude-opus-4-6') przestałaby
+    // odróżniać "rozwiązane przez alias" od "spadło na default". Ta asercja
+    // sprawdza samą definicję, niezależnie od aktualnej wartości defaultu.
+    expect(
+      CLAUDE_MODEL_DEFINITIONS.find((d) => d.id === 'claude-opus-5')!.aliases
+    ).toContain('claude-opus-4-6');
+  });
+
   it('przyjmuje starą datowaną formę Haiku', () => {
     expect(normalizeClaudeModelId('claude-haiku-4-5-20251001')).toBe('claude-haiku-4-5');
+  });
+
+  it('datowana forma Haiku jest jawnym aliasem haiku-4-5, nie tylko wynikiem defaultu', () => {
+    // Analogicznie do sonnet-4-6: gdyby CLAUDE_DEFAULT_MODEL kiedyś wskazywał na
+    // claude-haiku-4-5, sama normalizeClaudeModelId('claude-haiku-4-5-20251001')
+    // przestałaby odróżniać "rozwiązane przez alias" od "spadło na default". Ta
+    // asercja sprawdza samą definicję, niezależnie od aktualnej wartości defaultu.
+    expect(
+      CLAUDE_MODEL_DEFINITIONS.find((d) => d.id === 'claude-haiku-4-5')!.aliases
+    ).toContain('claude-haiku-4-5-20251001');
   });
 
   it('schodzi do domyślnego przy braku i przy śmieciu', () => {
