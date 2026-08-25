@@ -1,18 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { renderRunDevScript } from './run-dev';
-
-async function writeFileIfMissing(filePath: string, contents: string) {
-  try {
-    await fs.access(filePath);
-    return;
-  } catch {
-    // continue
-  }
-  const dir = path.dirname(filePath);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(filePath, contents, 'utf8');
-}
+import { writeFileIfMissing } from './write-file';
 
 export async function scaffoldNextApp(
   projectPath: string,

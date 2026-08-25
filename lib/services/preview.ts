@@ -587,6 +587,36 @@ async function ensureDependencies(
   await runInstallWithPreferredManager(projectPath, env, logger);
 }
 
+/**
+ * Środowisko dev-servera projektu użytkownika. Zmienne sesji Claude Code
+ * odpadają w całości, z dwóch niezależnych powodów:
+ *
+ * 1. `CLAUDECODE` to marker, po którym `am-i-vibing` — a przez nie `astro dev`
+ *    od wersji 7 — rozpoznaje sesję agenta i forkuje dev-server jako
+ *    `detached` demona. Takiego procesu grupowy SIGTERM z `killProcessTree`
+ *    już nie dosięga, więc port zostaje zajęty po zatrzymaniu preview.
+ *    Wyzwalacz jest ten sam dla każdego frameworka wykrywającego agenta, więc
+ *    odcinamy go tu, raz, zamiast powtarzać obejście w każdym template.
+ * 2. `CLAUDE_CODE_OAUTH_TOKEN` to poświadczenie agenta. Dev-server użytkownika
+ *    uruchamia jego kod i nie ma prawa go widzieć.
+ *
+ * W odróżnieniu od scrubu w `cli/claude-options.ts` nie ma tu allowlisty: tam
+ * proces agenta potrzebuje `CLAUDE_CONFIG_DIR` i tokenu, tutaj nie potrzeba
+ * żadnej z tych zmiennych.
+ */
+export function buildDevServerEnv(port: number, url: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_')) {
+      delete env[key];
+    }
+  }
+  env.PORT = String(port);
+  env.WEB_PORT = String(port);
+  env.NEXT_PUBLIC_APP_URL = url;
+  return env;
+}
+
 export interface PreviewInfo {
   port: number | null;
   url: string | null;
@@ -729,12 +759,7 @@ class PreviewManager {
 
     const initialUrl = `http://localhost:${preferredPort}`;
 
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      PORT: String(preferredPort),
-      WEB_PORT: String(preferredPort),
-      NEXT_PUBLIC_APP_URL: initialUrl,
-    };
+    const env: NodeJS.ProcessEnv = buildDevServerEnv(preferredPort, initialUrl);
 
     const previewProcess: PreviewProcess = {
       process: null,

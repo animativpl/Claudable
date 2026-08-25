@@ -86,7 +86,6 @@ describe('template nextjs', () => {
 // sprawdzanie samej obecności stringu w kodzie by go nie wyłapało.
 describe('wygenerowany wrapper dev', () => {
   it.each(['nextjs', 'astro'] as const)('%s: jest ESM, bez require', async (id) => {
-    if (!TEMPLATES[id]) return; // astro dochodzi w Task 17
     const dir = await scaffoldInto(id);
     const runDev = await fs.readFile(path.join(dir, 'scripts/run-dev.mjs'), 'utf8');
     expect(runDev).toMatch(/^import /m);
@@ -95,7 +94,6 @@ describe('wygenerowany wrapper dev', () => {
   });
 
   it.each(['nextjs', 'astro'] as const)('%s: parsuje się jako moduł', async (id) => {
-    if (!TEMPLATES[id]) return;
     const dir = await scaffoldInto(id);
     await expect(
       execFileAsync(process.execPath, ['--check', path.join(dir, 'scripts/run-dev.mjs')])
@@ -103,7 +101,6 @@ describe('wygenerowany wrapper dev', () => {
   });
 
   it.each(['nextjs', 'astro'] as const)('%s: binduje wszystkie interfejsy', async (id) => {
-    if (!TEMPLATES[id]) return;
     const dir = await scaffoldInto(id);
     const runDev = await fs.readFile(path.join(dir, 'scripts/run-dev.mjs'), 'utf8');
     expect(runDev).toContain('0.0.0.0');
@@ -136,6 +133,15 @@ describe('template astro', () => {
     expect(pkg.dependencies).not.toHaveProperty('next');
     // astro check bez @astrojs/check pada przy pierwszym użyciu
     expect(pkg.devDependencies).toHaveProperty('@astrojs/check');
+  });
+
+  it('deklaruje minimum Node, którego wymaga Astro', async () => {
+    // `astro` w bin/astro.mjs twardo odmawia startu poniżej 22.12.0
+    // (`errorNodeUnsupported()`), więc projekt użytkownika ma to powiedzieć
+    // przy `npm install`, a nie paść dopiero w logu dev-servera.
+    const dir = await scaffoldInto('astro');
+    const pkg = await readJson(dir, 'package.json');
+    expect(pkg.engines?.node).toBe('>=22.12.0');
   });
 
   it('mówi agentowi, że to Astro, a nie Next', async () => {

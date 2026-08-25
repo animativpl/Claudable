@@ -1,17 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { renderRunDevScript } from './run-dev';
-
-async function writeFileIfMissing(filePath: string, contents: string) {
-  try {
-    await fs.access(filePath);
-    return;
-  } catch {
-    // plik nie istnieje — zapisujemy
-  }
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, contents, 'utf8');
-}
+import { writeFileIfMissing } from './write-file';
 
 export async function scaffoldAstroApp(projectPath: string, projectId: string) {
   await fs.mkdir(projectPath, { recursive: true });
@@ -21,6 +11,12 @@ export async function scaffoldAstroApp(projectPath: string, projectId: string) {
     private: true,
     version: '0.1.0',
     type: 'module',
+    // Astro 7 odmawia startu poniżej tej wersji Node (`bin/astro.mjs`
+    // sprawdza `>=22.12.0` i kończy `errorNodeUnsupported()`). Deklarujemy to
+    // tam, gdzie obowiązuje, żeby npm powiedział o tym przy instalacji.
+    engines: {
+      node: '>=22.12.0',
+    },
     scripts: {
       dev: 'node scripts/run-dev.mjs',
       build: 'astro build',
@@ -123,11 +119,6 @@ import Layout from '../layouts/Layout.astro';
       binary: 'astro',
       preArgs: ['dev'],
       postArgs: ['--host', '0.0.0.0'],
-      // Astro 7 dev servers detach into a background daemon by default so an
-      // AI agent's foreground shell doesn't block; that daemon survives the
-      // wrapper process being killed. Force foreground so the platform's
-      // process lifecycle actually owns the dev server, same as Next.js.
-      env: { ASTRO_DEV_BACKGROUND: '0' },
     })
   );
 
