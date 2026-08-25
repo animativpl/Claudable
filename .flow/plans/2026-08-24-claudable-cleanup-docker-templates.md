@@ -1301,15 +1301,29 @@ the polling interval."
 - Consumes: nic.
 - Produces:
   ```ts
-  export function killProcessTree(pid: number | undefined, signal?: NodeJS.Signals): boolean;
+  // lib/services/process-tree.ts — wartość zwracana ROZRÓŻNIA ścieżki
+  export function killProcessTree(pid: number | undefined, signal?: NodeJS.Signals):
+    { signalled: boolean; scope: 'group' | 'single' };
   // lib/services/preview.ts
   export const previewManager: PreviewManager;  // bez zmian
-  // dwie nowe metody publiczne:
-  //   public killAllSync(): number              — dla handlera sygnałów, bez bazy
-  //   public async stopAll(): Promise<void>     — pełne zamknięcie z zapisem stanu
+  // jedna nowa metoda publiczna:
+  //   public killAllSync(): { group: number; single: number }
   ```
-  `stopAll()` jest wołane z `instrumentation.ts`, który powstaje w tym zadaniu
-  i który Task 11 rozszerza.
+  `killAllSync()` jest wołane z `instrumentation-node.ts`, który powstaje w tym
+  zadaniu i który Task 11 rozszerza rekoncyliacją.
+
+  **Rozróżnienie `group` / `single` jest nośne, nie kosmetyczne.** Bez `detached`
+  npm nie jest liderem grupy, `process.kill(-pid)` daje ESRCH, a fallback na
+  pojedynczy pid ubija tylko wrappera — wnuk `next-server` zostaje z portem.
+  Gdyby wartość zwracana nie rozróżniała tych ścieżek, handler zalogowałby
+  sukces, testy byłyby zielone, a sierota wróciłaby w milczeniu. To dokładnie
+  ta klasa błędu, którą to zadanie naprawia, więc jej naprawa nie może jej
+  w sobie zawierać.
+
+  `stopAll()` **nie powstaje** — pierwsza wersja przeprojektowania kazała ją
+  zostawić „dla ścieżek, które mają czas". Takiej ścieżki w repo nie ma: trasa
+  API woła `stop(projectId)` pojedynczo. Funkcja na zapas narusza zakaz
+  nieproszonej elastyczności z Global Constraints.
 
 **Gdzie rodzą się osierocone preview — punkt wejścia od reviewera Task 8.** `app/[project_id]/chat/page.tsx:1698-1713` zawiera preegzystujący efekt, który woła `start()` na **każdym** renderze spełniającym `!hasActiveRequests && !previewUrl && !isStartingPreview` — bez żadnej gardy `hasInitialPrompt`, więc także na zwykłym wejściu na stronę. To on, nie naprawiony w Task 8 efekt auto-startu, faktycznie napędza startowanie dev-serverów.
 
@@ -1553,7 +1567,7 @@ Powtórz ten sam pomiar dla kontenera w Task 20: `docker compose stop` i `ps` w 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add lib/services/process-tree.ts tests/services/process-tree.test.ts lib/services/preview.ts instrumentation.ts
+git add lib/services/process-tree.ts tests/services/process-tree.test.ts lib/services/preview.ts instrumentation.ts instrumentation-node.ts scripts/run-web.js
 git commit -m "fix: stop leaking preview dev servers
 
 Preview processes spawned without detached, and stop() signalled npm
@@ -3969,7 +3983,13 @@ Run: otwórz `http://localhost:3000`, utwórz projekt i wyślij prompt. Potem:
 ```bash
 docker compose logs claudable | grep -A 20 "Session initialized"
 ```
-**Sprawdź najpierw, że `/data` jest zapisywalny dla użytkownika kontenera.** Skrypt backupu liczy katalog kopii z `path.dirname(dbPath)`, więc przy `DATABASE_URL=file:/data/cc.db` kopie lądują w `/data/backups` — czyli na zamontowanym wolumenie, a nie w warstwie obrazu. To zamierzone i warte zachowania, ale wymaga, żeby `user:` z compose miał prawo pisać w tym katalogu. Test: `docker compose exec claudable npm run db:backup` musi wyjść zerowo i utworzyć plik widoczny na hoście.
+**Sprawdź, czy `docker stop` faktycznie dosięga procesu serwera.** To jedyny sposób, w jaki naprawa z Task 9 może być w kontenerze całkowicie martwa przy zielonym kodzie. Jeśli obraz startuje przez `sh -c` bez `exec` albo przez `npm start`, SIGTERM trafia w wrappera na PID 1, handler sygnałów nie odpala i dev-servery preview zostają — dokładnie ten sam mechanizm, który w trybie dev omijał `scripts/run-web.js` przed jego naprawą.
+
+Dwie rzeczy do **zobaczenia**, nie założenia:
+- Czy `instrumentation.ts` i `instrumentation-node.ts` trafiają do bundla przy `output: 'standalone'`. Statyczny string w `await import('./instrumentation-node')` powinien być śledzony, ale to trzeba potwierdzić.
+- Czy `docker compose stop` wypisuje w logach linię `[Shutdown] SIGTERM: …` z Task 9. Jeśli nie — sygnał nie dotarł do właściwego procesu; użyj `exec` w `CMD` albo formy tablicowej bez powłoki.
+
+**Sprawdź też, że `/data` jest zapisywalny dla użytkownika kontenera.** Skrypt backupu liczy katalog kopii z `path.dirname(dbPath)`, więc przy `DATABASE_URL=file:/data/cc.db` kopie lądują w `/data/backups` — czyli na zamontowanym wolumenie, a nie w warstwie obrazu. To zamierzone i warte zachowania, ale wymaga, żeby `user:` z compose miał prawo pisać w tym katalogu. Test: `docker compose exec claudable npm run db:backup` musi wyjść zerowo i utworzyć plik widoczny na hoście.
 
 Expected w payloadzie: `cwd` = `/data/projects/<id>`, `claudeCodeVersion` **identyczna** jak zgłaszana przez sesję na hoście (inaczej kontener uruchamia inne CLI, niż testowałeś), `apiKeySource` wskazujący na poświadczenia z mountu, `skills` i `slashCommands` z zamontowanego katalogu, `agents` z `agents/*.md`, a każdy wpis w `mcpServers` ma **`status: "connected"`** — nie tylko istnieje. Niepusta lista dowodzi jedynie, że pliki się wczytały; `status` dowodzi, że serwer naprawdę wstał w kontenerze.
 
