@@ -9,6 +9,7 @@ import { findAvailablePort } from '@/lib/utils/ports';
 import { getProjectById, updateProject, updateProjectStatus } from './project';
 import { scaffoldBasicNextApp } from '@/lib/utils/scaffold';
 import { PREVIEW_CONFIG } from '@/lib/config/constants';
+import { killProcessTree } from './process-tree';
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -859,6 +860,7 @@ class PreviewManager {
         env,
         shell: process.platform === 'win32',
         stdio: ['ignore', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32',
       }
     );
 
@@ -935,7 +937,7 @@ class PreviewManager {
     }
 
     try {
-      processInfo.process?.kill('SIGTERM');
+      killProcessTree(processInfo.process?.pid, 'SIGTERM');
     } catch (error) {
       console.error('[PreviewManager] Failed to stop preview process:', error);
     }
@@ -953,6 +955,21 @@ class PreviewManager {
       status: 'stopped',
       logs: processInfo.logs,
     };
+  }
+
+  /**
+   * Zamyka wszystkie dev-servery. Wołane z handlera sygnałów procesu —
+   * bez tego ubicie Claudable zostawia je żywe, trzymające porty.
+   */
+  public async stopAll(): Promise<void> {
+    const ids = Array.from(this.processes.keys());
+    for (const projectId of ids) {
+      try {
+        await this.stop(projectId);
+      } catch (error) {
+        console.error(`[PreviewManager] Failed to stop preview for ${projectId}:`, error);
+      }
+    }
   }
 
   public getStatus(projectId: string): PreviewInfo {
