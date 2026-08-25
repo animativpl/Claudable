@@ -3774,7 +3774,23 @@ Tryb awarii, jeśli to zignorujesz, jest cichy z perspektywy UI: projekt Astro t
 - Create: `Dockerfile`
 - Create: `.dockerignore`
 
-`next.config.js` **nie jest ruszany**: `output: 'standalone'` jest tam od dawna (linia 5). Obraz nie korzysta ze standalone — startuje przez `next start` z pełnym `node_modules`, bo tak samo robi `electron-builder` i nie mnożymy trybów uruchamiania. Standalone zostaje dla buildu desktopowego.
+`next.config.js` **nie jest ruszany**: `output: 'standalone'` jest tam od dawna (linia 5).
+
+**Pierwotna decyzja tego kroku została odwrócona pomiarem — obraz JEDNAK korzysta ze standalone.** Plan mówił: startować przez `next start` z pełnym `node_modules`, bo tak robi `electron-builder` i nie mnożymy trybów uruchamiania. Uruchomienie kontenera pokazało, że ta droga jest zepsuta:
+
+```
+$ docker stop -t 15 claudable-verify
+npm error command sh -c next start --port 3000 --hostname 0.0.0.0
+npm error signal SIGTERM
+```
+
+Zero linii `[Shutdown]` w logu, kod wyjścia **1** zamiast 0. `npx next start` sam forkuje powłokę, więc `exec` exec-uje w `npx`, a nie w proces Node — sygnał ginie o poziom za wcześnie i handler z Task 9, kosztujący trzy rundy poprawek, nigdy się nie wykonuje. Dev-servery preview zostają po `docker stop`.
+
+`server.js` z wyjścia standalone jest zwykłym skryptem node, więc `exec node server.js` czyni go PID 1 i sygnał dochodzi bezpośrednio. Zweryfikowane: `[Shutdown] SIGTERM: killed N preview process tree(s)` i kod wyjścia **0**. Przy okazji potwierdzone to, co linia niżej w Task 20 kazała sprawdzić: serwer standalone **wykonuje hook instrumentacji** — obie połowy, bo rekoncyliacja z Task 11 też odpaliła (`[UserRequests] Reconciled 1 request(s)`, `[PreviewManager] Cleared stale preview state for 1 project(s)`).
+
+Efekt uboczny: obraz **2.96 GB → 885 MB**.
+
+**Uczciwy koszt tej decyzji:** mamy teraz dwa tryby uruchamiania — desktop przez `next start`, kontener przez `server.js`. Pierwotna przesłanka („nie mnożymy trybów") była słuszna jako preferencja i przegrała z pomiarem, bo preferowany tryb w kontenerze nie działa. `next.config.js` zostaje nietknięty, więc build desktopowy jest bez zmian.
 
 **Interfaces:**
 - Consumes: nic.
@@ -4112,10 +4128,17 @@ Reguła działa też w drugą stronę i ta strona jest groźniejsza: **usunięci
 
 Reguła: **ustawiasz zmienną `CLAUDE_*` w kontenerze → dopisujesz ją do allowlisty w tym samym commicie. Ruszasz allowlistę → sprawdzasz `credential-status.ts`.** `CLAUDE_CONFIG_DIR` i `CLAUDE_CODE_OAUTH_TOKEN` są tam już; ta druga nie ma czytelnika w repo, ale ma **czternaście** w `cli.js` SDK, bo czytelnikiem jest binarka, nie nasz kod. Nie szukaj czytelników samym grepem po repo — to właśnie pomyliło implementera Task 13.
 
+**Dwie rzeczy przekazane wprost z Task 19 — nie zgaduj ich i nie sprawdzaj od nowa:**
+
+- **Katalog konfiguracyjny agenta w obrazie to `/home/node/.claude`, nie `/root/.claude`.** Obraz działa jako użytkownik `node`, a `resolveClaudeConfigDir()` idzie za `$HOME` (`lib/services/cli/claude-config-dir.ts`). Pierwszeństwo ma `CLAUDE_CONFIG_DIR`, więc montując katalog `.claude` użytkownika ustaw tę zmienną jawnie zamiast liczyć na ścieżkę domyślną. **Pamiętaj o regule allowlisty opisanej niżej** — `CLAUDE_CONFIG_DIR` jest na niej i musi tam zostać.
+- **`init: true` jest teraz nośne, nie kosmetyczne.** Po przejściu na wyjście standalone PID 1 to sam Node, a nie powłoka; dev-servery projektów są jego wnukami i bez reapera zostają zombie po zakończeniu.
+
+**Właściciel plików na bind-mouncie jest rozwiązany tylko w połowie na poziomie obrazu.** Task 19 dodał `USER node` (uid 1000), więc pliki nie należą już do roota — ale bind-mount zachowuje właściciela katalogu z hosta, a uid użytkownika może być inny niż 1000. Pełne dopasowanie daje dopiero `user: "${UID}:${GID}"` w compose i **to jest Twoja robota**. Task 19 przygotował na to obraz (`chmod a+w` na katalogu silników CLI Prismy, bo pod obcym uid Prisma przerywa start sprawdzeniem zapisywalności) i zweryfikował uruchomieniem, że `--user 1001:1001` daje pliki należące do użytkownika hosta.
+
 **Sprawdź, czy `docker stop` faktycznie dosięga procesu serwera.** To jedyny sposób, w jaki naprawa z Task 9 może być w kontenerze całkowicie martwa przy zielonym kodzie. Jeśli obraz startuje przez `sh -c` bez `exec` albo przez `npm start`, SIGTERM trafia w wrappera na PID 1, handler sygnałów nie odpala i dev-servery preview zostają — dokładnie ten sam mechanizm, który w trybie dev omijał `scripts/run-web.js` przed jego naprawą.
 
 Dwie rzeczy do **zobaczenia**, nie założenia:
-- Czy `instrumentation.ts` i `instrumentation-node.ts` trafiają do bundla przy `output: 'standalone'`. Statyczny string w `await import('./instrumentation-node')` powinien być śledzony, ale to trzeba potwierdzić.
+- ~~Czy `instrumentation.ts` i `instrumentation-node.ts` trafiają do bundla przy `output: 'standalone'`~~ — **potwierdzone w Task 19 uruchomieniem**: serwer standalone wykonuje hook, widać i handler sygnałów, i rekoncyliację startową. Nie sprawdzaj ponownie.
 - Czy `docker compose stop` wypisuje w logach linię `[Shutdown] SIGTERM: …` z Task 9. Jeśli nie — **najpierw sprawdź, czy to nie artefakt strumienia, a nie brak sygnału.** Handler woła `process.exit(0)` zaraz po logu, a zapisy na `stdout` w Node są asynchroniczne, gdy strumień jest **pipe** — czyli dokładnie tak, jak w kontenerze. `process.exit` ich nie flushuje, więc linia może zostać obcięta, mimo że praca się wykonała. Rozróżnij te dwa przypadki: jeśli porty preview zostały zwolnione, a linii nie ma, problem jest w strumieniu; jeśli porty zostały zajęte, sygnał nie dotarł i wtedy użyj `exec` w `CMD` albo formy tablicowej bez powłoki.
 
 **Sprawdź też, że `/data` jest zapisywalny dla użytkownika kontenera.** Skrypt backupu liczy katalog kopii z `path.dirname(dbPath)`, więc przy `DATABASE_URL=file:/data/cc.db` kopie lądują w `/data/backups` — czyli na zamontowanym wolumenie, a nie w warstwie obrazu. To zamierzone i warte zachowania, ale wymaga, żeby `user:` z compose miał prawo pisać w tym katalogu. Test: `docker compose exec claudable npm run db:backup` musi wyjść zerowo i utworzyć plik widoczny na hoście.
