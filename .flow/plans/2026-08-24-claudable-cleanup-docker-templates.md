@@ -1294,7 +1294,8 @@ the polling interval."
 - Create: `lib/services/process-tree.ts`
 - Create: `tests/services/process-tree.test.ts`
 - Modify: `lib/services/preview.ts` (~854 spawn, ~938 stop)
-- Create: `instrumentation.ts` (obsługa sygnałów procesu serwera)
+- Create: `instrumentation.ts` (cienka brama runtime'u)
+- Create: `instrumentation-node.ts` (handler sygnałów — cała treść, node-only)
 
 **Interfaces:**
 - Consumes: nic.
@@ -1303,8 +1304,9 @@ the polling interval."
   export function killProcessTree(pid: number | undefined, signal?: NodeJS.Signals): boolean;
   // lib/services/preview.ts
   export const previewManager: PreviewManager;  // bez zmian
-  // nowa metoda publiczna:
-  //   public async stopAll(): Promise<void>
+  // dwie nowe metody publiczne:
+  //   public killAllSync(): number              — dla handlera sygnałów, bez bazy
+  //   public async stopAll(): Promise<void>     — pełne zamknięcie z zapisem stanu
   ```
   `stopAll()` jest wołane z `instrumentation.ts`, który powstaje w tym zadaniu
   i który Task 11 rozszerza.
@@ -1436,12 +1438,31 @@ W metodzie `stop()` zastąp `processInfo.process?.kill('SIGTERM');` tym:
       killProcessTree(processInfo.process?.pid, 'SIGTERM');
 ```
 
-Dodaj nową metodę publiczną w klasie `PreviewManager`, obok `stop()`:
+Dodaj **dwie** metody publiczne w klasie `PreviewManager`, obok `stop()`. Rozdzielenie jest istotne i wynika z pomiaru — uzasadnienie niżej.
 
 ```ts
   /**
-   * Zamyka wszystkie dev-servery. Wołane z handlera sygnałów procesu —
-   * bez tego ubicie Claudable zostawia je żywe, trzymające porty.
+   * Ubija drzewa procesów wszystkich dev-serverów. WYŁĄCZNIE synchronicznie:
+   * wołane z handlera sygnałów, gdzie nic asynchronicznego nie ma gwarancji
+   * dobiegnięcia. Nie dotyka bazy — stan `previewUrl`/`previewPort` naprawia
+   * rekoncyliacja przy następnym starcie (Task 11).
+   */
+  public killAllSync(): number {
+    let killed = 0;
+    for (const [projectId, processInfo] of this.processes.entries()) {
+      if (killProcessTree(processInfo.process?.pid, 'SIGTERM')) {
+        killed += 1;
+      } else {
+        console.error(`[PreviewManager] Could not signal preview tree for ${projectId}`);
+      }
+    }
+    this.processes.clear();
+    return killed;
+  }
+
+  /**
+   * Pełne zamknięcie z zapisem stanu do bazy. Dla ścieżek, które mają czas —
+   * NIE dla handlera sygnałów.
    */
   public async stopAll(): Promise<void> {
     const ids = Array.from(this.processes.keys());
@@ -1455,42 +1476,57 @@ Dodaj nową metodę publiczną w klasie `PreviewManager`, obok `stop()`:
   }
 ```
 
+**Dlaczego dwie, a nie jedna — zmierzone, nie założone.** Pierwsza wersja tego zadania wołała `await previewManager.stopAll()` z handlera sygnałów. Zachowanie odtworzone trzykrotnie na dwóch różnych PID-ach pod `next dev`: linia `SIGTERM received` loguje się, drzewo procesów **ginie**, ale linia po `await` nigdy się nie pojawia — Next wychodzi z procesu przed dobiegnięciem asynchronicznego ogona. Ubijanie działało wyłącznie dlatego, że synchroniczny `process.kill` wygrywał wyścig, bez żadnej gwarancji kolejności.
+
+Wniosek: **w handlerze sygnałów robimy tylko to, co synchroniczne.** Ubicie grupy procesów takie jest. Zapis do bazy nie jest i nie należy tam.
+
 - [ ] **Step 7: Podłącz handler sygnałów w `instrumentation.ts`**
 
 `index.js` to wyłącznie entrypoint Electrona (`module.exports = require('./electron/main.js')`) — nie proces, w którym żyje `previewManager`. Właściwym miejscem jest hook instrumentacji Nexta: `register()` wykonuje się raz na proces serwera.
 
 Utwórz `instrumentation.ts` w katalogu głównym repozytorium:
 
+**Podziel plik na dwa.** `instrumentation.ts` jest bundlowane także dla runtime'u edge, gdzie `child_process` nie istnieje — import warstwy procesów wprost w tym pliku wywala **każdą stronę** błędem 500. To udokumentowany wzorzec Nexta dla dokładnie tego przypadku: cienki shim sprawdzający runtime plus osobny moduł node-only.
+
+`instrumentation.ts` — wyłącznie brama:
+
 ```ts
-/**
- * Uruchamiane raz na proces serwera Next.js. Dev-servery projektów są
- * dziećmi tego procesu — bez tego ubicie Claudable zostawia je żywe,
- * trzymające porty z puli preview.
- */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') {
     return;
   }
-
-  const { previewManager } = await import('@/lib/services/preview');
-
-  let shuttingDown = false;
-  const shutdown = async (signal: NodeJS.Signals) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`\n[Shutdown] ${signal} received — stopping preview servers...`);
-    try {
-      await previewManager.stopAll();
-    } catch (error) {
-      console.error('[Shutdown] Failed to stop preview servers cleanly:', error);
-    }
-    process.exit(0);
-  };
-
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  await import('./instrumentation-node');
 }
 ```
+
+`instrumentation-node.ts` — cała treść, wykonywana raz na proces serwera:
+
+```ts
+import { previewManager } from '@/lib/services/preview';
+
+let shuttingDown = false;
+
+/**
+ * Handler sygnałów robi WYŁĄCZNIE rzeczy synchroniczne. Zmierzone pod
+ * `next dev`: Next wychodzi z procesu przed dobiegnięciem jakiegokolwiek
+ * `await` w tym miejscu — linia po nim nigdy się nie wykonuje. Ubicie grupy
+ * procesów jest synchroniczne i dlatego działa; zapis do bazy nie jest,
+ * więc stan `previewUrl`/`previewPort` naprawia rekoncyliacja przy starcie
+ * (Task 11), a nie ten handler.
+ */
+function shutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const killed = previewManager.killAllSync();
+  console.log(`[Shutdown] ${signal}: killed ${killed} preview process tree(s)`);
+  process.exit(0);
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+```
+
+Log jest **po** ubiciu, nie przed — dzięki temu jego obecność w wyjściu dowodzi, że praca się wykonała, a nie że handler wystartował. To była realna słabość poprzedniej wersji: `SIGTERM received` logowało się zawsze, także wtedy, gdy nic po nim nie dobiegło.
 
 Sprawdź, czy `next.config.js` nie wyłącza instrumentacji. W Next 15 hook jest domyślnie włączony i nie wymaga flagi.
 
@@ -1508,15 +1544,9 @@ kill -TERM $SERVER_PID
 sleep 3
 ps -ef | grep "[d]ata/projects" | wc -l          # oczekiwane: 0
 ```
-Expected: pierwszy odczyt ≥ 1, drugi `0`, a w logach linia `[Shutdown] SIGTERM received`.
+Expected: pierwszy odczyt ≥ 1, drugi `0`, a w logach linia `[Shutdown] SIGTERM: killed N preview process tree(s)` z `N` równym pierwszemu odczytowi.
 
-Dołóż log **po** `stopAll()`, żeby udowodnić, że handler dobiegł do końca, a nie że Next zawołał `process.exit` w trakcie:
-
-```ts
-    console.log('[Shutdown] Preview servers stopped');
-```
-
-Jeśli tej linii nie ma w logach, handler jest wyprzedzany przez cudzy `process.exit` — zgłoś jako BLOCKED wraz z logiem, nie obchodź.
+Ta linia jest logowana **po** ubiciu, więc jej obecność dowodzi wykonania pracy. Jeśli jej nie ma, a procesy jednak zginęły — znaczy, że zginęły z innego powodu niż Twój handler i dowód jest nieważny; zgłoś to jako BLOCKED z logiem.
 
 Powtórz ten sam pomiar dla kontenera w Task 20: `docker compose stop` i `ps` w środku kontenera przed zatrzymaniem.
 
@@ -1832,14 +1862,42 @@ Uwaga na kolejność: to zadanie dodaje też rekoncyliację przy starcie (krok n
 
 - [ ] **Step 6: Odpal rekoncyliację raz na proces**
 
-W `instrumentation.ts` (powstał w Task 9) dodaj rekoncyliację na początku `register()`, przed rejestracją handlerów sygnałów:
+W `instrumentation-node.ts` (powstał w Task 9 — **nie** w `instrumentation.ts`, który jest tylko bramą runtime'u) dodaj rekoncyliację **przed** rejestracją handlerów sygnałów:
 
 ```ts
-  const { reconcileStaleRequests } = await import('@/lib/services/user-requests');
-  await reconcileStaleRequests();
+import { reconcileStaleRequests } from '@/lib/services/user-requests';
+import { reconcileStalePreviews } from '@/lib/services/preview';
+
+void reconcileStaleRequests();
+void reconcileStalePreviews();
 ```
 
 To jest właściwe miejsce: wykonuje się raz na proces serwera, przed obsługą pierwszego żądania — a każdy run niedomknięty w chwili startu jest z definicji martwy, bo nie ma go kto kontynuować.
+
+**Rekoncyliacja obejmuje dwie rzeczy, nie jedną.** Task 9 ustalił pomiarem, że handler sygnałów nie może pisać do bazy: Next wychodzi z procesu przed dobiegnięciem `await`. Ubija więc drzewa procesów synchronicznie i **zostawia w bazie nieaktualne `previewUrl` i `previewPort`**. Ten dług spłacasz tutaj.
+
+Dodaj do `lib/services/preview.ts`:
+
+```ts
+/**
+ * Po restarcie serwera mapa procesów jest pusta, więc każdy projekt
+ * z zapisanym `previewUrl` kłamie — proces, do którego ten adres wskazywał,
+ * nie żyje albo nie jest już nasz. Handler sygnałów nie może tego posprzątać
+ * (patrz Task 9: żadne `await` nie dobiega), więc robimy to przy starcie.
+ */
+export async function reconcileStalePreviews(): Promise<number> {
+  const result = await prisma.project.updateMany({
+    where: { NOT: { previewUrl: null } },
+    data: { previewUrl: null, previewPort: null, status: 'idle' },
+  });
+  if (result.count > 0) {
+    console.log(`[PreviewManager] Cleared stale preview state for ${result.count} project(s)`);
+  }
+  return result.count;
+}
+```
+
+Napisz do tego test w tym samym stylu, co `reconcileStaleRequests` — atrapa klienta, asercja na filtrze i na wyzerowanych polach.
 
 - [ ] **Step 7: Dowód z uruchomienia**
 
