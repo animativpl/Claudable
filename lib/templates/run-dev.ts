@@ -7,6 +7,8 @@ export interface RunDevSpec {
   preArgs: string[];
   /** Argumenty po --port, np. ["--hostname", "0.0.0.0"] */
   postArgs: string[];
+  /** Dodatkowe zmienne środowiskowe dla procesu dev-servera, np. wymuszenie trybu pierwszoplanowego */
+  env?: Record<string, string>;
 }
 
 /**
@@ -17,6 +19,10 @@ export interface RunDevSpec {
 export function renderRunDevScript(spec: RunDevSpec): string {
   // Port jest znany w czasie działania, nie generowania — stąd marker.
   const argTemplate = JSON.stringify([...spec.preArgs, '--port', '__PORT__', ...spec.postArgs]);
+  const extraEnvEntries = Object.entries(spec.env ?? {})
+    .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
+    .join(', ');
+  const extraEnv = extraEnvEntries ? `${extraEnvEntries}, ` : '';
 
   return [
     '#!/usr/bin/env node',
@@ -74,7 +80,7 @@ export function renderRunDevScript(spec: RunDevSpec): string {
     '  cwd: projectRoot,',
     "  stdio: 'inherit',",
     '  shell: isWindows,',
-    "  env: { ...process.env, PORT: String(port), NEXT_PUBLIC_APP_URL: url, NEXT_TELEMETRY_DISABLED: '1' },",
+    `  env: { ...process.env, ${extraEnv}PORT: String(port), NEXT_PUBLIC_APP_URL: url, NEXT_TELEMETRY_DISABLED: '1' },`,
     '});',
     '',
     "child.on('exit', (code) => {",

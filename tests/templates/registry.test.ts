@@ -109,3 +109,39 @@ describe('wygenerowany wrapper dev', () => {
     expect(runDev).toContain('0.0.0.0');
   });
 });
+
+describe('template astro', () => {
+  it('jest w rejestrze', () => {
+    expect(getTemplate('astro').id).toBe('astro');
+    expect(TEMPLATES.astro.label).toBe('Astro');
+  });
+
+  it('scaffolduje uruchamialny projekt', async () => {
+    const dir = await scaffoldInto('astro');
+    for (const file of [
+      'package.json', 'astro.config.mjs', 'tsconfig.json',
+      'src/pages/index.astro', 'src/layouts/Layout.astro',
+      'scripts/run-dev.mjs', 'CLAUDE.md',
+    ]) {
+      await expect(fs.access(path.join(dir, file))).resolves.toBeUndefined();
+    }
+  });
+
+  it('jest pakietem ESM zależnym od astro, nie od nexta', async () => {
+    const dir = await scaffoldInto('astro');
+    const pkg = await readJson(dir, 'package.json');
+    expect(pkg.type).toBe('module');
+    expect(pkg.scripts.dev).toBe('node scripts/run-dev.mjs');
+    expect(pkg.dependencies.astro).toMatch(/^\^\d+\.0\.0$/);
+    expect(pkg.dependencies).not.toHaveProperty('next');
+    // astro check bez @astrojs/check pada przy pierwszym użyciu
+    expect(pkg.devDependencies).toHaveProperty('@astrojs/check');
+  });
+
+  it('mówi agentowi, że to Astro, a nie Next', async () => {
+    const dir = await scaffoldInto('astro');
+    const claudeMd = await fs.readFile(path.join(dir, 'CLAUDE.md'), 'utf8');
+    expect(claudeMd).toMatch(/Astro/);
+    expect(claudeMd).not.toMatch(/Next\.js/);
+  });
+});

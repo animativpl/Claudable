@@ -1,3 +1,4 @@
+import { scaffoldAstroApp } from './astro';
 import { scaffoldNextApp } from './nextjs';
 import { DEFAULT_TEMPLATE_ID, TEMPLATE_META, type TemplateId, type TemplateMeta } from './meta';
 
@@ -10,7 +11,8 @@ export interface ProjectTemplate extends TemplateMeta {
 
 export const TEMPLATES: Record<TemplateId, ProjectTemplate> = {
   nextjs: { ...TEMPLATE_META.nextjs, scaffold: scaffoldNextApp },
-} as Record<TemplateId, ProjectTemplate>;
+  astro: { ...TEMPLATE_META.astro, scaffold: scaffoldAstroApp },
+};
 
 /**
  * Nieznane albo brakujące id schodzi do domyślnego template'u — istniejące
