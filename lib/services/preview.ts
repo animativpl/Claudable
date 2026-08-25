@@ -651,6 +651,17 @@ export function buildInstallEnv(): NodeJS.ProcessEnv {
   return scrubPlatformEnv();
 }
 
+/**
+ * Nazwa frameworka w logu scaffoldu musi pochodzić stąd, skąd bierze się sam
+ * scaffold — wpisana na sztywno „Next.js" kłamała przy projekcie Astro.
+ */
+export function bootstrapLogMessage(
+  templateType: string | null | undefined,
+  projectId: string
+): string {
+  return `Bootstrapping minimal ${getTemplate(templateType).label} app for project ${projectId}`;
+}
+
 export interface PreviewInfo {
   port: number | null;
   url: string | null;
@@ -700,7 +711,7 @@ class PreviewManager {
     try {
       await fs.access(path.join(projectPath, 'package.json'));
     } catch {
-      record(`Bootstrapping minimal Next.js app for project ${projectId}`);
+      record(bootstrapLogMessage(project.templateType, projectId));
       await getTemplate(project.templateType).scaffold(projectPath, projectId);
     }
 
@@ -779,9 +790,7 @@ class PreviewManager {
     try {
       await fs.access(path.join(projectPath, 'package.json'));
     } catch {
-      console.log(
-        `[PreviewManager] Bootstrapping minimal Next.js app for project ${projectId}`
-      );
+      console.log(`[PreviewManager] ${bootstrapLogMessage(project.templateType, projectId)}`);
       await getTemplate(project.templateType).scaffold(projectPath, projectId);
     }
 

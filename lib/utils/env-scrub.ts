@@ -14,7 +14,7 @@
  * widzi skilli/CLAUDE.md) i `CLAUDE_CODE_OAUTH_TOKEN` (własne poświadczenie);
  * procesy projektu użytkownika nie potrzebują żadnej zmiennej `CLAUDE_*`.
  *
- * Odcina trzy niezależne kategorie:
+ * Odcina cztery niezależne kategorie:
  * - `CLAUDECODE`/`CLAUDE_*`: zmienne sesji Claude Code. Terminal, z którego
  *   Claudable jest odpalany, może sam być sesją Claude Code — SDK odmawia
  *   wtedy startu zagnieżdżonej sesji.
@@ -26,13 +26,19 @@
  *   `__NEXT_PRIVATE_STANDALONE_CONFIG` z konfiguracją Nexta PLATFORMY;
  *   proces czytający tę zmienną jako własną dostaje cudzy `distDir` i
  *   `outputFileTracingRoot`.
+ * - `ENCRYPTION_KEY`: jedyny sekret platformy bez kopii na dysku w `/data`.
+ *   Baza jest w mouncie i tak widoczna, ale jej `ServiceToken` i `EnvVar` są
+ *   zaszyfrowane tym kluczem, więc odcięcie go realnie zmniejsza ekspozycję.
+ *   `DATABASE_URL` świadomie zostaje: plik bazy leży pod znaną ścieżką w tym
+ *   samym mouncie, więc ukrycie samej ścieżki byłoby pozorem ochrony.
  */
-function isPlatformSessionVar(key: string): boolean {
+function isPlatformOnlyVar(key: string): boolean {
   return (
     key === 'CLAUDECODE' ||
     key.startsWith('CLAUDE_') ||
     key === 'NODE_ENV' ||
-    key.startsWith('__NEXT_PRIVATE_')
+    key.startsWith('__NEXT_PRIVATE_') ||
+    key === 'ENCRYPTION_KEY'
   );
 }
 
@@ -42,7 +48,7 @@ export function scrubProcessEnv(allowlist: readonly string[] = []): NodeJS.Proce
   // właściwości nie kompiluje się bez `as any`.
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env)) {
-    if (isPlatformSessionVar(key) && !allowlist.includes(key)) {
+    if (isPlatformOnlyVar(key) && !allowlist.includes(key)) {
       delete env[key];
     }
   }

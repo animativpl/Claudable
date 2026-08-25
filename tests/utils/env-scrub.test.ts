@@ -39,6 +39,18 @@ describe('scrubProcessEnv', () => {
     expect(env).not.toHaveProperty('__NEXT_PRIVATE_ORIGIN');
   });
 
+  // Jedyny sekret platformy bez kopii na dysku w /data: bazę i tak widać
+  // w mouncie, ale jej tokeny są zaszyfrowane właśnie tym kluczem. Proces
+  // potomny — dev-server projektu użytkownika albo `postinstall` dowolnego
+  // pakietu, który agent zainstaluje — nie ma powodu go widzieć. `DATABASE_URL`
+  // celowo NIE jest odcinany: plik bazy leży pod znaną ścieżką w mouncie, więc
+  // ukrywanie ścieżki byłoby pozorem ochrony.
+  it('odcina ENCRYPTION_KEY platformy', () => {
+    const env = withEnv({ ENCRYPTION_KEY: 'a'.repeat(64) }, () => scrubProcessEnv());
+
+    expect(env).not.toHaveProperty('ENCRYPTION_KEY');
+  });
+
   it('zostawia w allowliście zmienne, które inaczej pasowałyby do prefiksu', () => {
     const env = withEnv(
       { CLAUDE_CONFIG_DIR: '/mnt/claude-home', CLAUDE_CODE_OAUTH_TOKEN: 'sk-oauth', CLAUDECODE: '1' },

@@ -109,7 +109,12 @@ ownership of files in the mounted `.claude` directory.
   — a filled-in number looks like a deliberate choice, and nothing would tell
   you it wasn't yours. Get your own with `id -u` and `id -g`.
 - **`ENCRYPTION_KEY`**: secrets go through `.env.docker`, a file outside the
-  repository (git-ignored).
+  repository (git-ignored). Also left blank in the example on purpose, and
+  guarded the same way as `HOST_UID`: Compose refuses to start without it. An
+  empty value would not stop the app — `lib/crypto.ts` falls back to a random
+  in-memory key, a *different* one on every container start, so the first
+  restart would leave every stored service token and encrypted env var
+  undecryptable.
 - **Ports**: published on `127.0.0.1` only. The app has no authentication and
   gives the agent a Bash tool, so exposing it on every network interface
   would be remote code execution for anyone on the same network. Reaching it
@@ -140,7 +145,11 @@ mounted host `.claude` directory. Subagent count follows a fixed rule: 4
 built-in (`general-purpose`, `statusline-setup`, `Explore`, `Plan`) plus one
 per definition file in the mounted `agents/` directory, plus any
 project-level agent definitions the project itself supplies — true for any
-`agents/` directory, not just this one. Skills and commands don't reduce to
+`agents/` directory, not just this one. Three things make a file not count:
+missing or unparseable frontmatter (a `name` and a `description` are
+required), a `name` that collides with one of the four built-ins, and a
+project definition reusing a user definition's name — the project one wins,
+and the pair counts once. Each skipped file is logged. Skills and commands don't reduce to
 as clean a formula (commands also pick up one entry per tool a connected MCP
 server exposes), so their numbers below are a measurement of this branch's
 own `~/.claude` configuration, not a portability promise: skills went from 5
@@ -279,9 +288,28 @@ npx prisma db push --accept-data-loss
 ```
 
 `--accept-data-loss` is safe here: the columns being dropped are no longer
-read by anything, and the backup step above already ran. It is deliberately
-**not** part of the automatic startup path — there, any future schema drift
-would silently delete data without asking.
+read by anything, and the backup step above already ran. On the local path
+(`npm run dev`) it is deliberately **not** part of automatic startup — there,
+any future schema drift asks instead of deleting.
+
+**In the container it is part of startup.** The image runs `prisma db push
+--accept-data-loss` against the mounted database on *every* start, with no
+backup and no prompt — a container has nobody to answer one. Nothing inside
+the container runs the backup or the legacy-row cleanup for you either. On an
+existing installation, run both from a normal checkout *before* the first
+`docker compose up`, against the same database file you are about to mount at
+`/data` — `./data/cc.db` by default, which is what a checkout already uses.
+With a custom `CLAUDABLE_DATA`, point `DATABASE_URL` in `.env` at that file
+first: these scripts read it from `.env`/`.env.local`, not from the shell.
+
+```bash
+npm run db:backup
+npm run db:migrate-legacy
+```
+
+Skipping this leaves the legacy `ServiceToken` rows for `vercel` and
+`supabase` in place, holding plaintext tokens the app can no longer delete:
+`DELETE /api/tokens/vercel` answers 400 now that those providers are gone.
 
 ### Database Migration Conflicts
 

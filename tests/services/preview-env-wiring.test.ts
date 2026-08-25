@@ -23,9 +23,14 @@ import ts from 'typescript';
 // miejsce W preview.ts" przestało być prawdą (i przestałoby być prawdą także
 // dla `claude-options.ts`, gdyby test go nie obejmował). Test sprawdza teraz
 // trzy pliki naraz: `env-scrub.ts` ma dokładnie jedno miejsce (kanoniczny
-// scrub), a `preview.ts` i `claude-options.ts` mają zero — każdy proces
-// potomny MUSI przejść przez `scrubProcessEnv`, żaden plik wywołujący nie ma
-// prawa zrobić własnego surowego `{ ...process.env }`.
+// scrub), a `preview.ts` i `claude-options.ts` mają zero — te dwie granice
+// (procesy projektu użytkownika i proces agenta) MUSZĄ przejść przez
+// `scrubProcessEnv` i żadna z nich nie ma prawa zrobić własnego surowego
+// `{ ...process.env }`. Poza tymi dwiema granicami niezmiennik nie
+// obowiązuje i test go nie pilnuje: `lib/services/git.ts` odpala `git`
+// z pełnym odziedziczonym środowiskiem, a `scripts/run-web.js` rozlewa
+// `process.env` do dev-servera samej platformy — oba świadomie, bo to nie
+// jest kod użytkownika.
 //
 // Świadomie AST przez `typescript` (i tak zależność projektu), nie
 // dopasowanie tekstu/regex: liczenie wystąpień w surowym tekście źródła jest

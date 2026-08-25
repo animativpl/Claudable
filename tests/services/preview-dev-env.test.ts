@@ -58,6 +58,20 @@ describe('buildDevServerEnv', () => {
     expect(env).not.toHaveProperty('__NEXT_PRIVATE_ORIGIN');
   });
 
+  // Sekret platformy, nie projektu: `ENCRYPTION_KEY` odszyfrowuje tokeny usług
+  // i zaszyfrowane `EnvVar` w bazie Claudable. Dev-server cudzego projektu (i
+  // każdy `postinstall`, który agent uruchomi) dziedziczył go razem z resztą
+  // środowiska.
+  it('nie przekazuje ENCRYPTION_KEY platformy, a port i PATH zostawia', () => {
+    const env = withEnv({ ENCRYPTION_KEY: 'a'.repeat(64) }, () =>
+      buildDevServerEnv(3107, 'http://localhost:3107')
+    );
+
+    expect(env).not.toHaveProperty('ENCRYPTION_KEY');
+    expect(env.PORT).toBe('3107');
+    expect(env.PATH).toBe(process.env.PATH);
+  });
+
   it('zostawia port, URL i resztę środowiska nietknięte', () => {
     // Drugi kierunek. Bez niego scrub zwracający pusty obiekt przechodzi.
     const env = withEnv({ CLAUDECODE: '1', ORDINARY_VAR: 'keep-me' }, () =>

@@ -61,6 +61,17 @@ services:
       # należącą do roota, a Claude Code trzyma `~/.claude.json` POZA
       # CLAUDE_CONFIG_DIR — zweryfikowane uruchomieniem w Task 19:
       # `touch $HOME/.claude.json` → Permission denied.
+      #
+      # Jedyny sekret aplikacji, i jedyna jego kopia w kontenerze. `:?` z tego
+      # samego powodu co przy `user:` wyżej: `lib/crypto.ts` czyta
+      # `process.env.ENCRYPTION_KEY || crypto.randomBytes(32)`, więc pusta
+      # wartość nie zatrzymuje startu — daje NOWY losowy klucz przy KAŻDYM
+      # starcie kontenera. Aplikacja działa w tej sesji, a po restarcie każdy
+      # `ServiceToken` i każdy zaszyfrowany `EnvVar` jest nie do odszyfrowania,
+      # z błędem szyfru zamiast komunikatu o złym kluczu. Lokalnie klucz
+      # generuje `scripts/setup-env.js`; ścieżka Dockera własnego generatora
+      # nie ma, więc strażnik jest tu jedyną obroną.
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env.docker (32-byte hex, generator in the comment there) and start with: docker compose --env-file .env.docker up}"
       PROJECTS_DIR: /data/projects
       DATABASE_URL: file:/data/cc.db
       # Bez tego /api/settings zwraca 500 z EACCES mkdir /app/data — /app
