@@ -15,6 +15,14 @@ export function resolveProjectRoot(projectId: string, repoPath?: string | null):
   if (repoPath) {
     return path.isAbsolute(repoPath) ? repoPath : path.resolve(process.cwd(), repoPath);
   }
+  if (
+    projectId.includes('/') ||
+    projectId.includes('\\') ||
+    projectId === '.' ||
+    projectId === '..'
+  ) {
+    throw new Error(`Invalid project id: ${projectId}`);
+  }
   return path.join(PROJECTS_DIR_ABSOLUTE, projectId);
 }
 

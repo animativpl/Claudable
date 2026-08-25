@@ -15,6 +15,32 @@ describe('resolveProjectRoot', () => {
     expect(resolveProjectRoot('p1')).toBe(path.join(PROJECTS_DIR_ABSOLUTE, 'p1'));
     expect(resolveProjectRoot('p1', null)).toBe(path.join(PROJECTS_DIR_ABSOLUTE, 'p1'));
   });
+
+  it('przepuszcza realny projectId aplikacji (project-<timestamp>-<random>)', () => {
+    expect(resolveProjectRoot('project-1700000000000-abc123def')).toBe(
+      path.join(PROJECTS_DIR_ABSOLUTE, 'project-1700000000000-abc123def')
+    );
+  });
+
+  it('odrzuca projectId z przejściem katalogów przez ../', () => {
+    expect(() => resolveProjectRoot('../../../tmp/pwn')).toThrow(/invalid project id/i);
+  });
+
+  it('odrzuca projectId równy ".."', () => {
+    expect(() => resolveProjectRoot('..')).toThrow(/invalid project id/i);
+  });
+
+  it('odrzuca projectId równy "."', () => {
+    expect(() => resolveProjectRoot('.')).toThrow(/invalid project id/i);
+  });
+
+  it('odrzuca projectId z separatorem "/"', () => {
+    expect(() => resolveProjectRoot('a/b')).toThrow(/invalid project id/i);
+  });
+
+  it('odrzuca projectId z separatorem "\\\\"', () => {
+    expect(() => resolveProjectRoot('a\\b')).toThrow(/invalid project id/i);
+  });
 });
 
 describe('resolveSafeProjectPath', () => {
