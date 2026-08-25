@@ -3680,9 +3680,21 @@ Granica jest wpisana w **czterech** miejscach i wszystkie muszą się zgadzać:
 
 Zmień też lokalnie w `.env` i `.env.local` (bez commitowania — patrz Files).
 
-**Uwaga na kolejność ładowania.** `scripts/run-web.js:18-19` ładuje `.env`, potem `.env.local`, **bez** `override: true` — a `dotenv` domyślnie nie nadpisuje już ustawionego klucza. Oba pliki dzielą dziś pięć kluczy (`PORT`, `WEB_PORT`, `NEXT_PUBLIC_APP_URL`, `PREVIEW_PORT_START`, `PREVIEW_PORT_END`), więc `.env.local` — plik konwencjonalnie służący do nadpisywania — po cichu nie nadpisuje niczego. To defekt preegzystujący, nie wprowadzony tym runem, i **nie jest Twoim zadaniem go naprawiać**. Ale gdy zmieniasz zakres portów, zmień go w **obu** plikach, bo w przeciwnym razie wartość, która wygrywa, nie jest tą, którą edytowałeś. Zgłoś ten defekt w raporcie, żeby trafił do review całej gałęzi.
+**`.env` jest jedynym źródłem prawdy — `.env.local` jest z niego regenerowane.** Zbadane: `scripts/setup-env.js` czyta pięć kluczy (`PORT`, `WEB_PORT`, `NEXT_PUBLIC_APP_URL`, `PREVIEW_PORT_START`, `PREVIEW_PORT_END`) **wyłącznie z `.env`** i **nadpisuje** je w `.env.local` przy każdym przebiegu. Do tego `scripts/run-web.js:18-19` ładuje oba pliki bez `override: true`, a `dotenv` nie nadpisuje już ustawionego klucza. Czyli `.env.local` nie jest w tym repo plikiem nadpisującym: ręczna edycja przegrywa wyścig w dotenv **i** zostaje wymazana przy następnym `npm run dev`.
 
-- [ ] **Step 2: Napisz test wyczerpania zakresu portów**
+Wniosek dla Ciebie: zakres portów zmień w **`.env`**. Zmiana w `.env.local` utrzymuje tylko spójność do najbliższego uruchomienia, które zrobi to samo.
+
+- [ ] **Step 2: Przestań generować zduplikowane klucze w `.env.local`**
+
+Skoro `setup-env.js` i tak liczy te wartości z `.env`, wypisywanie ich drugi raz do `.env.local` tworzy plik, który udaje nadpisanie i nim nie jest. Next.js sam ładuje `.env`, więc duplikaty nie są potrzebne.
+
+Usuń z zapisu do `.env.local` te pięć kluczy, zostawiając w nim wyłącznie to, czego naprawdę tam potrzeba (jeśli po tej zmianie plik nie ma żadnej treści, przestań go generować w ogóle i zapisz w raporcie, że tak zdecydowałeś).
+
+**Nie dodawaj `override: true` do `run-web.js`.** To by tylko stworzyło asymetrię: `setup-env.js` czytałby `.env`, a rozstrzygałby `.env.local`. Naprawą jest usunięcie duplikacji, nie zmiana precedencji.
+
+Dowód do raportu: usuń `.env.local`, uruchom `npm run dev`, pokaż, że aplikacja startuje na porcie z `.env` i że wygenerowany `.env.local` nie zawiera już zduplikowanych kluczy. Zakres portów odczytany node-side (`PREVIEW_PORT_START`/`END`) musi dalej działać — to jedyne dwa klucze, na które ten defekt realnie wpływał.
+
+- [ ] **Step 3: Napisz test wyczerpania zakresu portów**
 
 Decyzja 14 obiecuje pokrycie alokacji portu, a ryzyko 3 wymaga czytelnego błędu przy wyczerpaniu slotów. Przy 32 miejscach zamiast 900 to przestaje być teoretyczne.
 
@@ -3733,7 +3745,7 @@ describe('findAvailablePort', () => {
 Run: `npx vitest run tests/utils/port-allocation.test.ts`
 Expected: PASS. Jeśli trzeci test failuje, bo komunikat nie nazywa zakresu, popraw treść błędu w `lib/utils/ports.ts:113` tak, żeby zawierał granice — użytkownik z 32 zajętymi slotami musi z logu wiedzieć, co się stało.
 
-- [ ] **Step 3: Napisz `docker-compose.yml`**
+- [ ] **Step 4: Napisz `docker-compose.yml`**
 
 Utwórz `docker-compose.yml`:
 
@@ -3785,7 +3797,7 @@ services:
 
 Ścieżka musi być identyczna w kontenerze i na hoście, bo symlink jest absolutny. Dopisz `docker-compose.override.yml` do `.gitignore`.
 
-- [ ] **Step 4: Napisz przykładowy plik zmiennych**
+- [ ] **Step 5: Napisz przykładowy plik zmiennych**
 
 Utwórz `.env.docker.example`:
 
@@ -3824,7 +3836,7 @@ Dopisz do `.gitignore`:
 docker-compose.override.yml
 ```
 
-- [ ] **Step 5: Uruchom stack**
+- [ ] **Step 6: Uruchom stack**
 
 Run:
 ```bash
@@ -3842,7 +3854,7 @@ docker compose exec claudable id
 ```
 Expected: `uid=` równe twojemu `id -u`, nie `0`.
 
-- [ ] **Step 6: Dowód — parytet agenta w kontenerze**
+- [ ] **Step 7: Dowód — parytet agenta w kontenerze**
 
 Run: otwórz `http://localhost:3000`, utwórz projekt i wyślij prompt. Potem:
 ```bash
@@ -3856,7 +3868,7 @@ Osobno udowodnij, że hooki się **wykonują**, a nie tylko wczytują — hook b
 
 Wklej do raportu: cały payload `init`, statusy serwerów MCP i dowód odpalenia hooka. Puste `skills` przy niepustym `skills/` po stronie hosta = wiszące symlinki: dodaj `docker-compose.override.yml` z katalogiem docelowym i powtórz.
 
-- [ ] **Step 7: Dowód — preview dosięgalne z hosta**
+- [ ] **Step 8: Dowód — preview dosięgalne z hosta**
 
 Run:
 ```bash
@@ -3865,7 +3877,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3100/
 (albo port, który przydzielił PreviewManager — odczytaj z logów)
 Expected: `200`. To sprawdza jednocześnie publikację zakresu portów i bindowanie na `0.0.0.0` z Task 16/17.
 
-- [ ] **Step 8: Dowód — dane przeżywają restart**
+- [ ] **Step 9: Dowód — dane przeżywają restart**
 
 Run:
 ```bash
@@ -3875,7 +3887,7 @@ curl -s http://localhost:3000/api/projects | head -c 300
 ```
 Expected: utworzony projekt jest na liście. Wklej fragment odpowiedzi do raportu.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add docker-compose.yml .env.docker.example .gitignore tests/utils/port-allocation.test.ts scripts/setup-env.js lib/utils/ports.ts lib/services/preview.ts lib/config/constants.ts
