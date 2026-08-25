@@ -588,8 +588,9 @@ async function ensureDependencies(
 }
 
 /**
- * Środowisko dev-servera projektu użytkownika. Zmienne sesji Claude Code
- * odpadają w całości, z dwóch niezależnych powodów:
+ * Środowisko dowolnego procesu projektu użytkownika (dev-server, `npm
+ * install`, ...). Zmienne sesji Claude Code odpadają w całości, z dwóch
+ * niezależnych powodów:
  *
  * 1. `CLAUDECODE` to marker, po którym `am-i-vibing` — a przez nie `astro dev`
  *    od wersji 7 — rozpoznaje sesję agenta i forkuje dev-server jako
@@ -597,24 +598,40 @@ async function ensureDependencies(
  *    już nie dosięga, więc port zostaje zajęty po zatrzymaniu preview.
  *    Wyzwalacz jest ten sam dla każdego frameworka wykrywającego agenta, więc
  *    odcinamy go tu, raz, zamiast powtarzać obejście w każdym template.
- * 2. `CLAUDE_CODE_OAUTH_TOKEN` to poświadczenie agenta. Dev-server użytkownika
- *    uruchamia jego kod i nie ma prawa go widzieć.
+ * 2. `CLAUDE_CODE_OAUTH_TOKEN` to poświadczenie agenta. Kod użytkownika
+ *    uruchamiany w tym procesie (dev-server albo lifecycle script instalacji)
+ *    nie ma prawa go widzieć.
  *
  * W odróżnieniu od scrubu w `cli/claude-options.ts` nie ma tu allowlisty: tam
  * proces agenta potrzebuje `CLAUDE_CONFIG_DIR` i tokenu, tutaj nie potrzeba
  * żadnej z tych zmiennych.
  */
-export function buildDevServerEnv(port: number, url: string): NodeJS.ProcessEnv {
+function scrubClaudeSessionEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env)) {
     if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_')) {
       delete env[key];
     }
   }
+  return env;
+}
+
+export function buildDevServerEnv(port: number, url: string): NodeJS.ProcessEnv {
+  const env = scrubClaudeSessionEnv();
   env.PORT = String(port);
   env.WEB_PORT = String(port);
   env.NEXT_PUBLIC_APP_URL = url;
   return env;
+}
+
+/**
+ * Środowisko dla `npm install` (i odpowiedników) projektu użytkownika.
+ * W odróżnieniu od dev-servera instalacja nie jest długożyjącym procesem —
+ * nie ma portu ani URL-a do ogłoszenia, więc to tylko scrub, bez wstrzykiwania
+ * PORT/WEB_PORT/NEXT_PUBLIC_APP_URL.
+ */
+export function buildInstallEnv(): NodeJS.ProcessEnv {
+  return scrubClaudeSessionEnv();
 }
 
 export interface PreviewInfo {
@@ -688,7 +705,7 @@ class PreviewManager {
           if (!hasNodeModules) {
             await runInstallWithPreferredManager(
               projectPath,
-              { ...process.env },
+              buildInstallEnv(),
               collectFromChunk
             );
           }
