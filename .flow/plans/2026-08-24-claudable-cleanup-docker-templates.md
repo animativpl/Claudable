@@ -4135,6 +4135,24 @@ agent's .claude directory is a variable so it can be pointed anywhere."
 
 ### Task 21: Usuń debug-logi z gorących ścieżek (znalezisko J)
 
+**Do tego samego zadania dochodzą trupy, które ta gałąź sama zrobiła.** Faza 1 usunęła konsumentów, a definicje typów zostały — `tsconfig.json` nie ma `noUnusedLocals`, więc `tsc` o nich milczy i żaden grep na nazwę ich nie odróżni od kodu żywego.
+
+Ustalone przeze mnie na bazie gałęzi `b919ae8`, więc nie zgaduj i nie powtarzaj tego sprawdzenia — w bazie te typy **były używane**, a konsumentów zabrała faza 1:
+
+| Typ | Kto go używał w `b919ae8` |
+|---|---|
+| `CLIModel`, `CLIOption` | `CreateProjectModal.tsx` (usunięty w Task 6), `AIAssistantSettings.tsx`, `GlobalSettings.tsx`, `hooks/useCLI.ts`, `lib/utils/cliOptions.ts` |
+| `CLIType`, `SessionType`, `Session` | wyłącznie inne pliki typów: `types/cli.ts`, `types/shared/cli.ts`, `types/project.ts`, `types/shared/project.ts` |
+| zdublowany `GlobalSettings` | duplikat w `types/backend/cli.ts` |
+
+Zgłosił je fixer Task 15 i **słusznie ich nie ruszył** — zaklasyfikował jako „martwe, ale zastane", co było poprawnym zastosowaniem reguły „usuwaj tylko to, co Twoja zmiana osierociła" przy niepełnej wiedzy. Klasyfikacja była błędna co do faktu, bo nie sprawdził bazy gałęzi; reguła zadziałała dokładnie tak, jak ma działać.
+
+**Metoda dla Ciebie, bo tu jest cała trudność:** dla każdego kandydata porównaj stan w `b919ae8` ze stanem obecnym. Żywy w bazie i martwy teraz → ta gałąź go osierociła, usuwasz. Martwy w bazie i martwy teraz → zaszłość repo, **zgłaszasz i nie ruszasz**. Nie odwrotnie i nie na wyczucie.
+
+Uwaga na drugą kolejność zależności: `CLIType`, `SessionType` i `Session` były cytowane wyłącznie przez inne pliki typów. Usunięcie definicji może więc osierocić te pliki w całości — sprawdź `types/cli.ts`, `types/shared/cli.ts`, `types/client/modal.ts` i `types/client/index.ts` po kolei, a plik usuwaj wyłącznie wtedy, gdy nie zostanie w nim nic z żywym konsumentem.
+
+Fałszywy alarm, który już raz w tym runie prawie kosztował usunięcie żywej kolumny: `UserRequest.cliPreference` jest żywą kolumną innego modelu i **nie** jest pozostałością po `Project.preferredCli`. Nazwy bywają podobne, ale niepowiązane — sprawdzaj, do czego coś należy, nie tylko czy pasuje do wzorca.
+
 **Files:**
 - Modify: `app/api/chat/[project_id]/act/route.ts`
 - Modify: `app/api/assets/[project_id]/[filename]/route.ts`
