@@ -1293,6 +1293,10 @@ the polling interval."
 **Files:**
 - Create: `lib/services/process-tree.ts`
 - Create: `tests/services/process-tree.test.ts`
+- Create: `tests/services/preview-kill-all-sync.test.ts`
+- Create: `tests/services/preview-stop.test.ts`
+- Create: `tests/scripts/run-web-signal-forwarding.test.ts`
+- Modify: `scripts/run-web.js` (przekazywanie sygnałów — krok 8)
 - Modify: `lib/services/preview.ts` (~854 spawn, ~938 stop)
 - Create: `instrumentation.ts` (cienka brama runtime'u)
 - Create: `instrumentation-node.ts` (handler sygnałów — cała treść, node-only)
@@ -1410,16 +1414,6 @@ Expected: FAIL — nie da się rozwiązać importu
 Utwórz `lib/services/process-tree.ts`:
 
 ```ts
-export interface KillResult {
-  /** Czy udało się dostarczyć sygnał w ogóle. */
-  signalled: boolean;
-  /**
-   * `'group'` — ubito całą grupę procesów, czyli także wnuki.
-   * `'single'` — grupy nie było, ubito wyłącznie wskazany proces.
-   */
-  scope: 'group' | 'single';
-}
-
 /**
  * Dev-server projektu to `npm run dev`, który spawnuje własne dziecko —
  * zabicie samego npm zostawia wnuka trzymającego port.
@@ -1437,7 +1431,10 @@ export interface KillResult {
 export function killProcessTree(
   pid: number | undefined,
   signal: NodeJS.Signals = 'SIGTERM'
-): KillResult {
+): { signalled: boolean; scope: 'group' | 'single' } {
+  // `signalled` — czy sygnał w ogóle dostarczono.
+  // `scope: 'group'` — ubito całą grupę, czyli także wnuki.
+  // `scope: 'single'` — grupy nie było, ubito wyłącznie wskazany proces.
   if (!pid || pid <= 0) {
     return { signalled: false, scope: 'single' };
   }
@@ -1459,7 +1456,7 @@ export function killProcessTree(
 - [ ] **Step 4: Uruchom test i potwierdź, że przechodzi**
 
 Run: `npx vitest run tests/services/process-tree.test.ts`
-Expected: PASS — 2 testy
+Expected: PASS — 3 testy
 
 - [ ] **Step 5: Startuj dev-server jako lidera grupy**
 
@@ -1523,6 +1520,10 @@ Dodaj **jedną** metodę publiczną w klasie `PreviewManager`, obok `stop()`:
         group += 1;
       } else {
         single += 1;
+        console.warn(
+          `[PreviewManager] Killed only the wrapper for ${projectId} — no process group, ` +
+            `so a child may still hold its port.`
+        );
       }
     }
     this.processes.clear();
@@ -1620,7 +1621,11 @@ kill -TERM $SERVER_PID
 sleep 3
 ps -ef | grep "[d]ata/projects" | wc -l          # oczekiwane: 0
 ```
-Expected: pierwszy odczyt ≥ 1, drugi `0`, a w logach linia `[Shutdown] SIGTERM: killed N preview process tree(s)` z `N` równym pierwszemu odczytowi — i **bez** towarzyszącego ostrzeżenia o braku grupy procesów.
+Expected: pierwszy odczyt ≥ 1, drugi `0`, a w logach **jedna z dwóch** linii handlera:
+- `[Shutdown] SIGTERM: killed N preview process tree(s)` z `N` równym pierwszemu odczytowi — ścieżka poprawna, tej oczekuj;
+- albo ostrzeżenie o preview bez grupy procesów — handler **zadziałał**, ale `detached` nie dało grupy. To też sukces handlera, tylko sygnalizuje osobny problem: zgłoś ostrzeżenie w raporcie i sprawdź `detached` w spawnie.
+
+BLOCKED zgłaszaj wyłącznie wtedy, gdy **żadnej** z tych linii nie ma, a procesy zginęły — wtedy zginęły z innego powodu niż Twój handler i dowód jest nieważny.
 
 Ta linia jest logowana **po** ubiciu, więc jej obecność dowodzi wykonania pracy. Jeśli jej nie ma, a procesy jednak zginęły — znaczy, że zginęły z innego powodu niż Twój handler i dowód jest nieważny; zgłoś to jako BLOCKED z logiem.
 
