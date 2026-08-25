@@ -11,7 +11,6 @@ import { serializeMessage, createRealtimeMessage } from '@/lib/serializers/chat'
 import { updateProject, getProjectById } from '../project';
 import { createMessage } from '../message';
 import { CLAUDE_DEFAULT_MODEL, normalizeClaudeModelId, getClaudeModelDisplayName } from '@/lib/constants/claudeModels';
-import path from 'path';
 import fs from 'fs/promises';
 import { randomUUID } from 'crypto';
 import {
@@ -21,6 +20,7 @@ import {
 } from '@/lib/services/user-requests';
 import { buildClaudeQueryOptions } from './claude-options';
 import { summarizeInitPayload } from './init-payload';
+import { resolveProjectRoot } from '@/lib/utils/project-path';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
@@ -558,7 +558,7 @@ function resolveModelId(model?: string | null): string {
  * @param projectId - Project ID
  * @param projectPath - Project directory path
  * @param instruction - Command to pass to AI
- * @param model - Claude model to use (default: claude-sonnet-4-6)
+ * @param model - Claude model to use (default: claude-sonnet-5)
  * @param sessionId - Previous session ID (maintains conversation context)
  * @param requestId - (Optional) User request tracking ID
  */
@@ -671,31 +671,9 @@ export async function executeClaude(
 
     console.log(`[ClaudeService] ✅ Project verified: ${project.name}`);
 
-    // Validate and prepare project path
-    console.log(`[ClaudeService] 🔒 Validating project path...`);
-
-    // Convert to absolute path
-    const absoluteProjectPath = path.isAbsolute(projectPath)
-      ? path.resolve(projectPath)
-      : path.resolve(process.cwd(), projectPath);
-
-    // Security: Verify project path is within allowed directory
-    const allowedBasePath = path.resolve(process.cwd(), process.env.PROJECTS_DIR || './data/projects');
-    const relativeToBase = path.relative(allowedBasePath, absoluteProjectPath);
-    const isWithinBase =
-      !relativeToBase.startsWith('..') && !path.isAbsolute(relativeToBase);
-    if (!isWithinBase) {
-      const errorMessage = `Security violation: Project path must be within ${allowedBasePath}. Got: ${absoluteProjectPath}`;
-      console.error(`[ClaudeService] ❌ ${errorMessage}`);
-
-      streamManager.publish(projectId, {
-        type: 'error',
-        error: errorMessage,
-        data: requestId ? { requestId } : undefined,
-      });
-
-      throw new Error(errorMessage);
-    }
+    // Resolve the project path
+    console.log(`[ClaudeService] 📁 Resolving project path...`);
+    const absoluteProjectPath = resolveProjectRoot(projectId, projectPath);
 
     // Check project directory exists and create if needed
     try {
@@ -1136,7 +1114,7 @@ export async function executeClaude(
  * @param projectId - Project ID
  * @param projectPath - Project directory path
  * @param initialPrompt - Initial prompt
- * @param model - Claude model to use (default: claude-sonnet-4-6)
+ * @param model - Claude model to use (default: claude-sonnet-5)
  * @param requestId - (Optional) User request tracking ID
  */
 export async function initializeNextJsProject(
@@ -1166,7 +1144,7 @@ Set up the basic project structure and implement the requested features.
  * @param projectId - Project ID
  * @param projectPath - Project directory path
  * @param instruction - Change request command
- * @param model - Claude model to use (default: claude-sonnet-4-6)
+ * @param model - Claude model to use (default: claude-sonnet-5)
  * @param sessionId - Session ID
  * @param requestId - (Optional) User request tracking ID
  */

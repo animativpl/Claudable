@@ -34,4 +34,25 @@ describe('buildClaudeQueryOptions', () => {
     const options = buildClaudeQueryOptions(input);
     expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' });
   });
+
+  it('włącza wszystkie źródła ustawień z dysku', () => {
+    const options = buildClaudeQueryOptions(input);
+    expect(options.settingSources).toEqual(['user', 'project', 'local']);
+  });
+
+  it('odcina zmienne sesji Claude Code od procesu potomnego', () => {
+    process.env.CLAUDECODE = '1';
+    process.env.CLAUDE_CODE_SSE_PORT = '12345';
+    try {
+      const options = buildClaudeQueryOptions(input);
+      expect(options.env).toBeDefined();
+      expect(options.env).not.toHaveProperty('CLAUDECODE');
+      expect(options.env).not.toHaveProperty('CLAUDE_CODE_SSE_PORT');
+      // reszta środowiska musi przejść nietknięta
+      expect(options.env?.PATH).toBe(process.env.PATH);
+    } finally {
+      delete process.env.CLAUDECODE;
+      delete process.env.CLAUDE_CODE_SSE_PORT;
+    }
+  });
 });
