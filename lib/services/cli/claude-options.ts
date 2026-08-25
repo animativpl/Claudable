@@ -1,14 +1,11 @@
 import type { AgentDefinition, Options } from '@anthropic-ai/claude-agent-sdk';
+import { scrubProcessEnv } from '@/lib/utils/env-scrub';
 
 // Zmienne, które muszą przeżyć scrub mimo pasowania do prefiksu CLAUDE_:
 // CLAUDE_CONFIG_DIR wskazuje zamontowany katalog konfiguracyjny (bez niego
 // agent nie widzi skilli/CLAUDE.md), CLAUDE_CODE_OAUTH_TOKEN to poświadczenie
 // agenta, jeśli kontener nim uwierzytelnia zamiast kluczem API.
 const CLAUDE_ENV_ALLOWLIST = ['CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN'] as const;
-
-function isClaudeSessionVar(key: string): boolean {
-  return key === 'CLAUDECODE' || key.startsWith('CLAUDE_');
-}
 
 /**
  * Claudable osadza SDK, więc nie jest zagnieżdżoną sesją Claude Code — ale
@@ -17,15 +14,14 @@ function isClaudeSessionVar(key: string): boolean {
  * potomnego zamiast wyliczać znane nazwy: sesja nadrzędna ma ich więcej niż
  * dało się przewidzieć z góry (IPC, telemetria, ID sesji), a wyliczanie
  * zostawia dokładnie te, których nie przewidzieliśmy.
+ *
+ * Agent uruchamia `npm install` i buildy w projekcie użytkownika przez swoje
+ * narzędzie Bash — ta sama trasa wycieku `NODE_ENV`/`__NEXT_PRIVATE_*` co w
+ * `preview.ts`, więc scrub jest ten sam współdzielony pomocnik, różniący się
+ * tu tylko allowlistą.
  */
-function childEnv(): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (isClaudeSessionVar(key) && !(CLAUDE_ENV_ALLOWLIST as readonly string[]).includes(key)) {
-      delete env[key];
-    }
-  }
-  return env;
+function childEnv(): NodeJS.ProcessEnv {
+  return scrubProcessEnv(CLAUDE_ENV_ALLOWLIST);
 }
 
 export interface BuildClaudeOptionsInput {

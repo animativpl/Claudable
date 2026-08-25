@@ -6,6 +6,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import { findAvailablePort } from '@/lib/utils/ports';
+import { scrubProcessEnv } from '@/lib/utils/env-scrub';
 import { getProjectById, updateProject, updateProjectStatus } from './project';
 import { getTemplate } from '@/lib/templates';
 import { PREVIEW_CONFIG } from '@/lib/config/constants';
@@ -622,23 +623,14 @@ async function ensureDependencies(
  * `distDir` i `outputFileTracingRoot: /app` Claudable'a: dev-server wstawał,
  * a każde żądanie kończyło się 500 z ENOENT na
  * `.next/fallback-build-manifest.json`.
+ *
+ * Scrub sam żyje w `lib/utils/env-scrub.ts`, dzielony z `cli/claude-options.ts`
+ * (proces agenta ma ten sam wyciek przez swoje narzędzie Bash) — tutaj bez
+ * allowlisty, bo procesy projektu użytkownika nie potrzebują żadnej zmiennej
+ * CLAUDE_*.
  */
 function scrubPlatformEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  // Kasowanie po `key` z `Object.keys`, nie `delete env.NODE_ENV`: Next
-  // deklaruje `NODE_ENV` w `ProcessEnv` jako readonly, więc dostęp po
-  // właściwości nie kompiluje się bez `as any`.
-  for (const key of Object.keys(env)) {
-    if (
-      key === 'CLAUDECODE' ||
-      key.startsWith('CLAUDE_') ||
-      key === 'NODE_ENV' ||
-      key.startsWith('__NEXT_PRIVATE_')
-    ) {
-      delete env[key];
-    }
-  }
-  return env;
+  return scrubProcessEnv();
 }
 
 export function buildDevServerEnv(port: number, url: string): NodeJS.ProcessEnv {

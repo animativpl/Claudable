@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildClaudeQueryOptions } from '@/lib/services/cli/claude-options';
+import { withEnv } from '../services/support/claude-session-env';
 
 describe('buildClaudeQueryOptions', () => {
   const input = {
@@ -89,6 +90,29 @@ describe('buildClaudeQueryOptions', () => {
       if (previousOauthToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
       else process.env.CLAUDE_CODE_OAUTH_TOKEN = previousOauthToken;
     }
+  });
+
+  it('odcina NODE_ENV platformy i prywatną konfigurację Nexta ze środowiska agenta', () => {
+    // Recenzent Task 19 przechwycił żywy proces agenta w kontenerze: dostawał
+    // NODE_ENV=production z obrazu, mimo że ścieżka preview ten sam scrub już
+    // miała. Agent instaluje pakiety i uruchamia buildy w projekcie
+    // użytkownika przez Bash — pod NODE_ENV=production `npm install`
+    // odpalony przez agenta pomija devDependencies, dokładnie ten sam objaw,
+    // dla którego scrub w preview.ts powstał, tylko na drugiej trasie.
+    const env = withEnv(
+      {
+        NODE_ENV: 'production',
+        __NEXT_PRIVATE_STANDALONE_CONFIG: '{"distDir":"./.next"}',
+        ORDINARY_VAR: 'keep-me',
+      },
+      () => buildClaudeQueryOptions(input).env
+    );
+
+    expect(env).not.toHaveProperty('NODE_ENV');
+    expect(env).not.toHaveProperty('__NEXT_PRIVATE_STANDALONE_CONFIG');
+    // Drugi kierunek: reszta środowiska, w tym zmienne niezwiązane z
+    // platformą, ma przeżyć nietknięta.
+    expect(env?.ORDINARY_VAR).toBe('keep-me');
   });
 
   it('przekazuje wczytanych subagentów', () => {
