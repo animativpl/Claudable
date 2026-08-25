@@ -11,3 +11,9 @@ npm-debug.log*
 !README.md
 tests
 vitest.config.ts
+# Demo GIF-y do README: 134 MB, które trace standalone wciąga do obrazu.
+# Ścieżka jest pełna, nie sama nazwa `assets` — wzorce .dockerignore
+# dopasowują się do całej ścieżki względem kontekstu, ale `assets` jako
+# nazwa katalogu żyje w tym repo także pod `app/api/assets/`, czyli w kodzie
+# trzech tras API. Wąski wzorzec nie może w nie trafić.
+assets/gif

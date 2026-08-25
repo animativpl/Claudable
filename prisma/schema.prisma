@@ -1,8 +1,18 @@
 // Claudable - Prisma Schema (SQLite)
 // Supports both development and production using SQLite
 
+// binaryTargets: `native` alone is not enough for the container image.
+// `node:22-slim` ships no `openssl` package, so Prisma's libssl detection
+// fails during `prisma generate` and silently falls back to
+// "openssl-1.1.x". The runtime layer then pulls openssl in as a
+// ca-certificates dependency, detects OpenSSL 3.0 correctly, and every
+// query dies with "could not locate the Query Engine". Naming the targets
+// explicitly removes the detection step from the build entirely.
+// Both Debian targets are listed so one image definition serves x86_64 and
+// arm64 hosts; `native` keeps local development working off-Debian.
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
 }
 
 datasource db {
