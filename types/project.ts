@@ -1,3 +1,5 @@
+import type { TemplateId } from '@/lib/templates/meta';
+
 export type ProjectStatus =
   | 'idle'
   | 'preview_running'
@@ -32,6 +34,7 @@ export interface Project {
     github?: ServiceConnection;
   };
   selectedModel?: string | null;
+  templateType?: TemplateId | null;
 }
 
 export interface ProjectSettings {

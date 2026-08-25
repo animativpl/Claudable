@@ -18,7 +18,7 @@ export type ProjectStatus =
   | 'active'
   | 'failed';
 
-export type TemplateType = 'nextjs' | 'react' | 'vue' | 'custom';
+export type { TemplateId as TemplateType } from '@/lib/templates/meta';
 
 /**
  * Service Connection Status

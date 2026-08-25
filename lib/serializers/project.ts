@@ -14,6 +14,7 @@ export function serializeProject(project: ProjectEntity): Project {
     lastActiveAt: project.lastActiveAt ? project.lastActiveAt.toISOString() : null,
     initialPrompt: project.initialPrompt ?? null,
     selectedModel: project.selectedModel ?? null,
+    templateType: project.templateType ?? null,
   };
 }
 

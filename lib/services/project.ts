@@ -7,6 +7,7 @@ import type { Project, CreateProjectInput, UpdateProjectInput } from '@/types/ba
 import fs from 'fs/promises';
 import { normalizeModelId, getDefaultModelForCli } from '@/lib/constants/cliModels';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
+import { normalizeTemplateType } from '@/lib/templates/meta';
 
 /**
  * Retrieve all projects
@@ -55,7 +56,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       repoPath: projectPath,
       selectedModel: normalizeModelId(null, input.selectedModel ?? getDefaultModelForCli(null)),
       status: 'idle',
-      templateType: 'nextjs',
+      templateType: normalizeTemplateType(input.templateType),
       lastActiveAt: new Date(),
       previewUrl: null,
       previewPort: null,

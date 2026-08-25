@@ -8,6 +8,7 @@ import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
 import { Image as ImageIcon } from 'lucide-react';
 import type { Project as ProjectSummary } from '@/types/project';
+import { TEMPLATE_META_LIST, DEFAULT_TEMPLATE_ID } from '@/lib/templates/meta';
 
 // Ensure fetch is available
 const fetchAPI = globalThis.fetch || fetch;
@@ -49,6 +50,7 @@ export default function HomePage() {
     };
   }, []);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(DEFAULT_TEMPLATE_ID);
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -399,7 +401,8 @@ export default function HomePage() {
           project_id: projectId,
           name: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
           initialPrompt: prompt.trim(),
-          selectedModel
+          selectedModel,
+          templateType: selectedTemplate
         })
       });
       
@@ -917,6 +920,24 @@ export default function HomePage() {
                       className="hidden"
                     />
                   </label>
+                </div>
+                {/* Template Selector */}
+                <div className="flex items-center gap-1">
+                  {TEMPLATE_META_LIST.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      title={template.description}
+                      onClick={() => setSelectedTemplate(template.id)}
+                      className={`justify-center whitespace-nowrap text-sm font-medium transition-colors duration-100 ease-in-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 border px-3 py-2 flex h-8 items-center rounded-full focus-visible:ring-0 ${
+                        selectedTemplate === template.id
+                          ? 'border-gray-200/50 bg-gray-100 text-black font-semibold'
+                          : 'border-gray-200/50 bg-transparent shadow-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300/50 hover:text-gray-900'
+                      }`}
+                    >
+                      {template.label}
+                    </button>
+                  ))}
                 </div>
                 {/* Model Selector */}
                 <div className="relative z-[200]" ref={modelDropdownRef}>

@@ -4,7 +4,8 @@
 
 export type ProjectStatus = 'idle' | 'running' | 'stopped' | 'error';
 
-export type TemplateType = 'nextjs' | 'react' | 'vue' | 'custom';
+import type { TemplateId as TemplateType } from '@/lib/templates/meta';
+export type { TemplateType };
 
 export interface Project {
   id: string;
@@ -33,6 +34,7 @@ export interface CreateProjectInput {
   initialPrompt: string;
   selectedModel?: string;
   description?: string;
+  templateType?: TemplateType;
 }
 
 export interface UpdateProjectInput {

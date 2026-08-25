@@ -7,6 +7,7 @@
 import { NextRequest } from 'next/server';
 import { getAllProjects, createProject } from '@/lib/services/project';
 import type { CreateProjectInput } from '@/types/backend';
+import { normalizeTemplateType } from '@/lib/templates/meta';
 import { serializeProjects, serializeProject } from '@/lib/serializers/project';
 import { getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
 import { createSuccessResponse, createErrorResponse, handleApiError } from '@/lib/utils/api-response';
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
       initialPrompt: body.initialPrompt || body.initial_prompt,
       selectedModel: normalizeModelId(null, requestedModel ?? getDefaultModelForCli(null)),
       description: body.description,
+      templateType: normalizeTemplateType(body.templateType ?? body.template_type),
     };
 
     // Validation
