@@ -4019,7 +4019,12 @@ services:
       - "3000:3000"
       - "3100-3131:3100-3131"
     environment:
-      HOME: /home/app
+      # HOME celowo NIE jest tu ustawiane — obraz ustawia `/data/home`, bo pod
+      # dowolnym uid z `user:` nie ma wpisu w passwd i HOME wskazywałby na
+      # niezapisywalny `/`. Nadpisanie na katalog spoza mountu daje ścieżkę
+      # należącą do roota, a Claude Code trzyma `~/.claude.json` POZA
+      # CLAUDE_CONFIG_DIR — zweryfikowane uruchomieniem w Task 19:
+      # `touch $HOME/.claude.json` → Permission denied.
       PROJECTS_DIR: /data/projects
       DATABASE_URL: file:/data/cc.db
       SETTINGS_DIR: /data
@@ -4027,14 +4032,16 @@ services:
       PREVIEW_PORT_END: "3131"
       # Katalog, z którego agent bierze CLAUDE.md, skille, hooki i MCP —
       # dokładnie tak jak `claude` w terminalu.
-      CLAUDE_CONFIG_DIR: /home/app/.claude
+      CLAUDE_CONFIG_DIR: /data/home/.claude
     volumes:
       # Projekty, baza i ustawienia globalne.
       - ${CLAUDABLE_DATA:-./data}:/data
       # Konfiguracja agenta. Musi być zapisywalna: odświeżenie tokenu OAuth
       # pisze do .credentials.json, a przy :ro agent padnie po jego wygaśnięciu.
-      - ${CLAUDABLE_CLAUDE_DIR:-${HOME}/.claude}:/home/app/.claude
+      - ${CLAUDABLE_CLAUDE_DIR:-${HOME}/.claude}:/data/home/.claude
 ```
+
+**Cache npm ląduje na mouncie danych użytkownika.** Obraz ustawia `npm_config_cache=/data/.npm`, bo pod obcym uid domyślny `/.npm` jest niezapisywalny. To świadomy wybór — lepszy niż katalog zapisywalny dla wszystkich w obrazie — ale `/data` trzyma bazę i projekty użytkownika i będzie teraz rosnąć o setki megabajtów cache'u. Napisz o tym jedno zdanie w dokumentacji, żeby nie było pytania „czemu mój katalog danych ma 500 MB".
 
 `ENCRYPTION_KEY` wchodzi przez `env_file`, nie przez interpolację — jeden plik `.env.docker` jest jedynym źródłem sekretów i nie ma go w repozytorium.
 
