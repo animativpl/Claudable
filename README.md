@@ -61,7 +61,8 @@ How to start? Simply login to Claude Code, start Claudable, and describe what yo
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:
-- Node.js 18+
+- Node.js 20+ (`package.json` requires `>=20.0.0`; the Docker image below ships
+  Node 22, and generated Astro projects need Node ≥ 22.12 to start)
 - Claude Code (already logged in)
 - Git
 
@@ -121,6 +122,16 @@ ownership of files in the mounted `.claude` directory.
   project's own `engines.node` (`>=20.0.0` in `package.json`) — one is the
   platform Claudable itself runs on, the other is the runtime it hands to
   generated projects inside the container.
+- **`CLAUDABLE_DATA`** (default `./data`): mounted to `/data` in the
+  container. Holds projects, the SQLite database, and global settings. Set
+  this to keep projects outside the repository, e.g.
+  `CLAUDABLE_DATA=/srv/claudable-data` in `.env.docker`.
+- **`CLAUDABLE_CLAUDE_DIR`** (default `${HOME}/.claude`): mounted to
+  `/data/home/.claude` in the container, which is also where `CLAUDE_CONFIG_DIR`
+  points inside the container — the agent's `CLAUDE.md`, skills, subagents,
+  hooks, MCP config, and credentials. The mount must be writable: refreshing
+  the OAuth token writes to `.credentials.json`, and a read-only mount makes
+  the agent fail once that token expires.
 
 ### What you get from the mounted `.claude`
 
@@ -139,6 +150,16 @@ Two things don't have full parity:
 - **Hook parity is 11 of 12.** The twelfth hook entry in a user's
   `settings.json` has an absolute host path with no container equivalent
   under any mount layout, so it doesn't fire inside the container.
+
+**Symlinks inside `.claude` that point outside it will silently not work.**
+Docker's bind mount only brings in the mounted directory itself — a symlink
+inside `.claude` that targets a path elsewhere on the host (common with
+dotfiles managers) resolves to nothing in the container. The symptom is
+exactly that: settings that appear configured on the host have no effect
+inside the container, with no error anywhere. Workaround: add a
+`docker-compose.override.yml` that bind-mounts the symlink's real target at
+the same absolute path inside the container, so the link resolves the same
+way it does on the host.
 
 ### Updating an existing installation
 
@@ -222,9 +243,13 @@ npm run clean       # Remove all dependencies
 ### Getting Started with Development
 
 1. **Connect Claude Code**: Link your Claude Code CLI to enable AI assistance
-2. **Describe Your Project**: Use natural language to describe what you want to build
-3. **AI Generation**: Watch as the AI generates your project structure and code
-4. **Live Preview**: See changes instantly with hot reload functionality
+2. **Pick a Template**: A new project starts from one of two templates —
+   Next.js (App Router) or Astro. The template scaffolds a minimal project
+   and writes a `CLAUDE.md` into it with that framework's conventions, which
+   the agent reads from the project directory on every run.
+3. **Describe Your Project**: Use natural language to describe what you want to build
+4. **AI Generation**: Watch as the AI generates your project structure and code
+5. **Live Preview**: See changes instantly with hot reload functionality
 
 ### Database Operations
 
