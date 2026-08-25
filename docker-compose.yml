@@ -1,0 +1,69 @@
+# Uruchomienie:
+#
+#   cp .env.docker.example .env.docker   # uzupełnij, patrz komentarze w środku
+#   mkdir -p data/home                   # patrz niżej — wymagane przed pierwszym startem
+#   docker compose --env-file .env.docker up --build -d
+#
+# `mkdir -p data/home` nie jest ozdobne. Brakujące katalogi bind-mountu tworzy
+# demon Dockera, czyli root, i tak też je zostawia na hoście — a kontener
+# chodzi pod uid użytkownika. Zmierzone na czystym katalogu: `./data`
+# i `./data/home` powstają jako root:root, po czym kontener nie zapisze ani
+# bazy, ani projektów, ani `~/.claude.json` (HOME to `/data/home`). Objaw jest
+# mylący, bo aplikacja wstaje. Jeden `mkdir -p` załatwia oba poziomy; przy
+# ustawionym CLAUDABLE_DATA użyj `mkdir -p "$CLAUDABLE_DATA/home"`.
+#
+# `--env-file` jest wymagany, nie ozdobny. Compose podstawia `${...}` niżej
+# wyłącznie ze środowiska powłoki i z pliku interpolacji (domyślnie `./.env`),
+# a NIGDY z `env_file:` sekcji usługi — ta trafia dopiero do środowiska
+# kontenera. Bez tej flagi `HOST_UID`/`HOST_GID` z `.env.docker` są niewidoczne
+# dla `user:` niżej, kontener dostaje domyślne 1000:1000 i na hoście o innym
+# uid pliki w zamontowanym `.claude` zmieniają właściciela. Zmierzone: na uid
+# 1001 `docker compose up` bez flagi daje w kontenerze `uid=1000`.
+# Domyślne `./.env` tej roli pełnić nie może — trzyma konfigurację dev
+# (`DATABASE_URL` wskazujący ścieżkę hosta) i ma własnego generatora.
+services:
+  claudable:
+    build: .
+    image: claudable:dev
+    # Dev-servery projektów są dziećmi tego kontenera — PID 1 musi je zbierać.
+    init: true
+    # KLUCZOWE: bez tego kontener działa jako root i po pierwszym odświeżeniu
+    # tokenu OAuth pliki w zamontowanym katalogu .claude po stronie HOSTA
+    # zmieniają właściciela na root — a wtedy `claude` w twoim terminalu
+    # przestaje działać. Ustaw HOST_UID/HOST_GID w .env.docker.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file:
+      - .env.docker
+    ports:
+      - "3000:3000"
+      # 32 sloty preview. Ta sama liczba co PREVIEW_PORT_START/_END niżej
+      # i co EXPOSE w obrazie; port przydzielony poza nią jest z hosta
+      # nieosiągalny.
+      - "3100-3131:3100-3131"
+    environment:
+      # HOME celowo NIE jest tu ustawiane — obraz ustawia `/data/home`, bo pod
+      # dowolnym uid z `user:` nie ma wpisu w passwd i HOME wskazywałby na
+      # niezapisywalny `/`. Nadpisanie na katalog spoza mountu daje ścieżkę
+      # należącą do roota, a Claude Code trzyma `~/.claude.json` POZA
+      # CLAUDE_CONFIG_DIR — zweryfikowane uruchomieniem w Task 19:
+      # `touch $HOME/.claude.json` → Permission denied.
+      PROJECTS_DIR: /data/projects
+      DATABASE_URL: file:/data/cc.db
+      # Bez tego /api/settings zwraca 500 z EACCES mkdir /app/data — /app
+      # w obrazie jest tylko do odczytu.
+      SETTINGS_DIR: /data
+      PREVIEW_PORT_START: "3100"
+      PREVIEW_PORT_END: "3131"
+      # Katalog, z którego agent bierze CLAUDE.md, skille, hooki i MCP —
+      # dokładnie tak jak `claude` w terminalu. Jest na allowliście
+      # CLAUDE_ENV_ALLOWLIST w lib/services/cli/claude-options.ts; bez wpisu
+      # scrub prefiksu CLAUDE_ odciąłby ją procesowi agenta po cichu.
+      CLAUDE_CONFIG_DIR: /data/home/.claude
+    volumes:
+      # Projekty, baza i ustawienia globalne. Tu ląduje też cache npm
+      # (obraz ustawia npm_config_cache=/data/.npm), więc katalog urośnie
+      # o setki megabajtów po pierwszych instalacjach zależności.
+      - ${CLAUDABLE_DATA:-./data}:/data
+      # Konfiguracja agenta. Musi być zapisywalna: odświeżenie tokenu OAuth
+      # pisze do .credentials.json, a przy :ro agent padnie po jego wygaśnięciu.
+      - ${CLAUDABLE_CLAUDE_DIR:-${HOME}/.claude}:/data/home/.claude

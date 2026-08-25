@@ -149,3 +149,62 @@ export async function updateProjectStatus(
   });
   console.log(`[ProjectService] Updated project status: ${id} -> ${status}`);
 }
+
+async function directoryExists(targetPath: string): Promise<boolean> {
+  try {
+    return (await fs.stat(targetPath)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `repoPath` trzyma absolutną ścieżkę hosta, zapisaną raz przy tworzeniu
+ * projektu. Zmiana montowania — na przykład przeniesienie instalacji do
+ * kontenera, gdzie `PROJECTS_DIR=/data/projects` — unieważnia ją po cichu:
+ * lista projektów renderuje się z bazy, więc aplikacja wygląda zdrowo, a
+ * agent (`repoPath` jest jego katalogiem roboczym), preview i usuwanie
+ * projektu pracują na katalogu, którego nie ma. Ostatnie jest najgroźniejsze:
+ * `deleteProject` woła `fs.rm(repoPath, { recursive: true, force: true })`.
+ *
+ * Rozstrzygamy dowodem, nie założeniem: przepisujemy wyłącznie wtedy, gdy
+ * stara ścieżka zniknęła, a katalog o tym id leży w `PROJECTS_DIR`. Odwrotnie
+ * nie ruszamy — gdy pliki NIE przeniosły się razem z katalogiem, `repoPath`
+ * jest jedyną poprawną wskazówką i nadpisanie skasowałoby ją.
+ *
+ * Ta sama figura co `reconcileStalePreviews`: stan w bazie kłamie po zmianie
+ * otoczenia, więc weryfikujemy go przy starcie.
+ */
+export async function reconcileProjectPaths(): Promise<number> {
+  try {
+    const projects = await prisma.project.findMany({
+      select: { id: true, repoPath: true },
+    });
+
+    let rewritten = 0;
+    for (const project of projects) {
+      if (!project.repoPath) continue;
+      // eslint-disable-next-line no-await-in-loop
+      if (await directoryExists(project.repoPath)) continue;
+
+      const candidate = resolveProjectRoot(project.id);
+      // eslint-disable-next-line no-await-in-loop
+      if (!(await directoryExists(candidate))) continue;
+
+      // eslint-disable-next-line no-await-in-loop
+      await prisma.project.update({
+        where: { id: project.id },
+        data: { repoPath: candidate },
+      });
+      console.log(
+        `[ProjectService] Repointed project ${project.id}: ${project.repoPath} -> ${candidate}`
+      );
+      rewritten += 1;
+    }
+
+    return rewritten;
+  } catch (error) {
+    console.error('[ProjectService] Failed to reconcile project paths:', error);
+    return 0;
+  }
+}

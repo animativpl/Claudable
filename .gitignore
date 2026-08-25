@@ -79,3 +79,7 @@ release/
 
 # git worktrees created by the harness
 .claude/worktrees/
+
+# docker compose secrets / local override
+.env.docker
+docker-compose.override.yml

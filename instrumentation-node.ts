@@ -10,6 +10,7 @@
  * stan w bazie naprawia rekoncyliacja przy następnym starcie (Task 11).
  */
 import { previewManager, reconcileStalePreviews } from '@/lib/services/preview';
+import { reconcileProjectPaths } from '@/lib/services/project';
 import { reconcileStaleRequests } from '@/lib/services/user-requests';
 
 // Rekoncyliacja przy starcie: każdy UserRequest/preview niedomknięty w chwili
@@ -17,6 +18,12 @@ import { reconcileStaleRequests } from '@/lib/services/user-requests';
 // Musi wykonać się PRZED rejestracją handlerów sygnałów poniżej — to
 // asynchroniczna ścieżka, a handler sygnałów musi zostać wyłącznie
 // synchroniczny (patrz komentarz przy `shutdown`).
+//
+// `reconcileProjectPaths` dołącza tu z tego samego powodu: `repoPath` to
+// absolutna ścieżka hosta, a po zmianie montowania (kontener) wskazuje na
+// katalog, którego nie ma. Weryfikacja przy starcie jest jedynym momentem,
+// w którym da się to naprawić, zanim agent albo preview jej użyje.
+void reconcileProjectPaths();
 void reconcileStaleRequests();
 void reconcileStalePreviews();
 
