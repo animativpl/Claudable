@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@/types/chat';
 import type { MessageMetadata } from '@/types/backend';
+import { randomId } from '@/lib/utils/random-id';
 
 const pickFirstString = (value: unknown): string | undefined => {
   if (typeof value === 'string' && value.trim().length > 0) {
@@ -59,10 +60,7 @@ const deriveMessageId = (raw: any): string => {
   const base = [project, role, type, created, content].join('|');
 
   if (base.trim().length === 0) {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-    return `msg_${Math.random().toString(36).slice(2)}`;
+    return randomId('msg');
   }
 
   return `msg_${stableHash(base)}`;

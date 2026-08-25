@@ -9,6 +9,7 @@ import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, 
 import { Image as ImageIcon } from 'lucide-react';
 import type { Project as ProjectSummary } from '@/types/project';
 import { TEMPLATE_META_LIST, DEFAULT_TEMPLATE_ID } from '@/lib/templates/meta';
+import { randomId } from '@/lib/utils/random-id';
 
 // Ensure fetch is available
 const fetchAPI = globalThis.fetch || fetch;
@@ -311,7 +312,7 @@ export default function HomePage() {
       const imagesToAdd = filesArray
         .filter(file => file.type.startsWith('image/'))
         .map(file => ({
-          id: crypto.randomUUID(),
+          id: randomId('img'),
           name: file.name,
           url: URL.createObjectURL(file),
           path: '',

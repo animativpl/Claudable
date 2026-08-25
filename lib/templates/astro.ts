@@ -37,11 +37,23 @@ export async function scaffoldAstroApp(projectPath: string, projectId: string) {
     `${JSON.stringify(packageJson, null, 2)}\n`
   );
 
+  // Astro przy zajętym porcie po cichu bierze następny wolny, więc platforma
+  // zapisałaby adres podglądu wskazujący w pustkę. `strictPort` nie istnieje
+  // w configu Astro — to opcja Vite'a, przekazywana kluczem `vite`.
   await writeFileIfMissing(
     path.join(projectPath, 'astro.config.mjs'),
     `import { defineConfig } from 'astro/config';
 
-export default defineConfig({});
+export default defineConfig({
+  vite: {
+    server: {
+      // The platform assigns this project's port. Fail on a taken port
+      // instead of quietly moving to the next one, which would leave the
+      // preview pointing at nothing.
+      strictPort: true,
+    },
+  },
+});
 `
   );
 

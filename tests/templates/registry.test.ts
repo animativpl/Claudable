@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_TEMPLATE_ID, TEMPLATES, getTemplate, normalizeTemplateType } from '@/lib/templates';
@@ -16,6 +17,31 @@ const scaffoldInto = async (id: 'nextjs' | 'astro') => {
 
 const readJson = async (dir: string, file: string) =>
   JSON.parse(await fs.readFile(path.join(dir, file), 'utf8'));
+
+interface AstroConfigShape {
+  vite?: { server?: { strictPort?: boolean } };
+}
+
+/**
+ * Zwraca wygenerowany `astro.config.mjs` jako obiekt. Podmienia `defineConfig`
+ * na identyczność, bo `astro` nie jest zależnością tego repozytorium — a
+ * sprawdzanie samego tekstu configu przepuściłoby błędnie zagnieżdżony klucz.
+ */
+const evaluateAstroConfig = async (dir: string): Promise<AstroConfigShape> => {
+  const source = await fs.readFile(path.join(dir, 'astro.config.mjs'), 'utf8');
+  const evaluable = path.join(dir, 'astro.config.evaluated.mjs');
+  await fs.writeFile(
+    evaluable,
+    source.replace(/^import \{ defineConfig \}.*$/m, 'const defineConfig = (config) => config;')
+  );
+  const { stdout } = await execFileAsync(process.execPath, [
+    '--input-type=module',
+    '-e',
+    `import config from ${JSON.stringify(pathToFileURL(evaluable).href)};` +
+      ' process.stdout.write(JSON.stringify(config));',
+  ]);
+  return JSON.parse(stdout);
+};
 
 describe('normalizeTemplateType', () => {
   it('przepuszcza znane template\'y', () => {
@@ -142,6 +168,17 @@ describe('template astro', () => {
     const dir = await scaffoldInto('astro');
     const pkg = await readJson(dir, 'package.json');
     expect(pkg.engines?.node).toBe('>=22.12.0');
+  });
+
+  // Astro przy zajętym porcie po cichu bierze następny wolny (zmierzone na
+  // 7.2.6: `--port 4399` → nasłuch na 4400), więc zapisany adres podglądu
+  // wskazuje w pustkę. `strictPort` nie istnieje w configu Astro — to opcja
+  // Vite'a, przekazywana kluczem `vite`. Asercja idzie po wartości, nie po
+  // tekście: literówka w kluczu jest tym samym cichym dryfem.
+  it('twardo trzyma przydzielony port zamiast dryfować na następny', async () => {
+    const dir = await scaffoldInto('astro');
+    const config = await evaluateAstroConfig(dir);
+    expect(config.vite?.server?.strictPort).toBe(true);
   });
 
   it('mówi agentowi, że to Astro, a nie Next', async () => {

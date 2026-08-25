@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { SendHorizontal, MessageSquare, Image as ImageIcon, Wrench } from 'lucide-react';
+import { randomId } from '@/lib/utils/random-id';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
@@ -182,7 +183,7 @@ export default function ChatInput({
         const imageUrl = URL.createObjectURL(file);
 
         const newImage: UploadedImage = {
-          id: crypto.randomUUID(),
+          id: randomId('img'),
           filename: result.filename,
           path: result.absolute_path,
           url: imageUrl,

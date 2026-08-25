@@ -14,6 +14,8 @@ import { ChatErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
+import { randomId } from '@/lib/utils/random-id';
+import { toBrowsablePreviewUrl } from '@/lib/utils/preview-url';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
 
@@ -227,12 +229,9 @@ export default function ChatPage() {
   const initialPromptSentRef = useRef(false);
   const [isStartingPreview, setIsStartingPreview] = useState(false);
   const [previewInitializationMessage, setPreviewInitializationMessage] = useState('Starting development server...');
-  const [conversationId, setConversationId] = useState<string>(() => {
-    if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
-      return window.crypto.randomUUID();
-    }
-    return '';
-  });
+  const [conversationId, setConversationId] = useState<string>(() =>
+    typeof window === 'undefined' ? '' : randomId()
+  );
   const [selectedModel, setSelectedModel] = useState<string>(getDefaultModelForCli(null));
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState<boolean>(true);
   const [thinkingMode, setThinkingMode] = useState<boolean>(false);
@@ -259,6 +258,17 @@ export default function ChatPage() {
     previewUrlRef.current = previewUrl;
   }, [previewUrl]);
 
+  // Zapisany adres podglądu wskazuje na `localhost`, bo dev-server startuje po
+  // stronie serwera. Dla przeglądarki na innej maszynie „localhost" to ona
+  // sama, więc port bierzemy z zapisanego adresu, a hosta z bieżącego okna.
+  const browsablePreviewUrl = useMemo(
+    () =>
+      previewUrl === null || typeof window === 'undefined'
+        ? previewUrl
+        : toBrowsablePreviewUrl(previewUrl, window.location.hostname),
+    [previewUrl]
+  );
+
   const sendInitialPrompt = useCallback(async (initialPrompt: string) => {
     if (initialPromptSent) {
       return;
@@ -267,7 +277,7 @@ export default function ChatPage() {
     setAgentWorkComplete(false);
     localStorage.setItem(`project_${projectId}_taskComplete`, 'false');
 
-    const requestId = crypto.randomUUID();
+    const requestId = randomId();
 
     try {
       setIsRunning(true);
@@ -463,8 +473,8 @@ const persistProjectPreferences = useCallback(
 
   // Navigate to specific route in iframe
   const navigateToRoute = (route: string) => {
-    if (previewUrl && iframeRef.current) {
-      const baseUrl = previewUrl.split('?')[0]; // Remove any query params
+    if (browsablePreviewUrl && iframeRef.current) {
+      const baseUrl = browsablePreviewUrl.split('?')[0]; // Remove any query params
       // Ensure route starts with /
       const normalizedRoute = route.startsWith('/') ? route : `/${route}`;
       const newUrl = `${baseUrl}${normalizedRoute}`;
@@ -474,7 +484,7 @@ const persistProjectPreferences = useCallback(
   };
 
   const refreshPreview = useCallback(() => {
-    if (!previewUrl || !iframeRef.current) {
+    if (!browsablePreviewUrl || !iframeRef.current) {
       return;
     }
 
@@ -483,14 +493,14 @@ const persistProjectPreferences = useCallback(
         currentRoute && currentRoute.startsWith('/')
           ? currentRoute
           : `/${currentRoute || ''}`;
-      const baseUrl = previewUrl.split('?')[0] || previewUrl;
+      const baseUrl = browsablePreviewUrl.split('?')[0] || browsablePreviewUrl;
       const url = new URL(baseUrl + normalizedRoute);
       url.searchParams.set('_ts', Date.now().toString());
       iframeRef.current.src = url.toString();
     } catch (error) {
       console.warn('Failed to refresh preview iframe:', error);
     }
-  }, [previewUrl, currentRoute]);
+  }, [browsablePreviewUrl, currentRoute]);
 
 
   const stop = useCallback(async () => {
@@ -1315,7 +1325,7 @@ const persistProjectPreferences = useCallback(
     }
 
     setIsRunning(true);
-    const requestId = crypto.randomUUID();
+    const requestId = randomId();
     let tempUserMessageId: string | null = null;
 
     // Add to pending requests
@@ -1343,7 +1353,7 @@ const persistProjectPreferences = useCallback(
           return 'png';
         })();
 
-        const inferredName = img.name && img.name.trim().length > 0 ? img.name.trim() : `image-${crypto.randomUUID()}.${extension}`;
+        const inferredName = img.name && img.name.trim().length > 0 ? img.name.trim() : `image-${randomId()}.${extension}`;
         const hasExtension = /\.[a-zA-Z0-9]+$/.test(inferredName);
         const filename = hasExtension ? inferredName : `${inferredName}.${extension}`;
 
@@ -2040,7 +2050,7 @@ const persistProjectPreferences = useCallback(
                       <iframe 
                         ref={iframeRef}
                         className="w-full h-full border-none bg-white "
-                        src={previewUrl}
+                        src={browsablePreviewUrl ?? undefined}
                         onError={() => {
                           // Show error overlay
                           const overlay = document.getElementById('iframe-error-overlay');
