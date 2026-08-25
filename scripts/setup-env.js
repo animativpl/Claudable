@@ -23,7 +23,7 @@ const sqlitePath = path.join(rootDataDir, 'cc.db');
 const MAX_PORT = 65_535;
 // Preview servers (per-project) dynamic pool
 const FALLBACK_PORT_START = 3_100;
-const FALLBACK_PORT_END = 3_999;
+const FALLBACK_PORT_END = 3_131;
 const DEFAULT_RANGE_SPAN = FALLBACK_PORT_END - FALLBACK_PORT_START;
 // Claudable (root web app) default port and small scan span to avoid preview pool
 const DEFAULT_WEB_PORT = 3_000;
@@ -320,4 +320,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { ensureEnvironment };
+module.exports = { ensureEnvironment, FALLBACK_PORT_START, FALLBACK_PORT_END };

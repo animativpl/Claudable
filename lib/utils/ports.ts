@@ -1,8 +1,9 @@
 import net from 'net';
+import { PREVIEW_CONFIG } from '@/lib/config/constants';
 
 const MAX_PORT = 65_535;
-const FALLBACK_PORT_START = 3_100;
-const FALLBACK_PORT_END = 3_131;
+export const FALLBACK_PORT_START = PREVIEW_CONFIG.FALLBACK_PORT_START;
+export const FALLBACK_PORT_END = PREVIEW_CONFIG.FALLBACK_PORT_END;
 const DEFAULT_RANGE_SPAN = FALLBACK_PORT_END - FALLBACK_PORT_START;
 
 function normalizePortInput(value?: number | string | null): number | null {
