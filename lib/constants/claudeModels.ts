@@ -23,7 +23,7 @@ export const CLAUDE_MODEL_DEFINITIONS: ClaudeModelDefinition[] = [
     supportsImages: true,
     aliases: [
       'claude-opus-5', 'claude-opus', 'opus-5', 'opus',
-      // Poprzednie generacje: rozwiązują się w górę, nie na default
+      // Previous generations: resolve up to this model, not down to the default
       'claude-opus-4-6', 'claude-opus-4.6',
       'claude-opus-4-5-20251101', 'claude-opus-4-5', 'claude-opus-4.5',
       'claude-opus-4-1-20250805', 'claude-opus-4-1', 'claude-opus-4.1',

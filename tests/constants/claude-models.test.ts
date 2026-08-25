@@ -38,6 +38,15 @@ describe('normalizeClaudeModelId', () => {
     expect(normalizeClaudeModelId('claude-sonnet-4-6')).toBe('claude-sonnet-5');
   });
 
+  it('sonnet-4-6 jest jawnym aliasem sonnet-5, nie tylko wynikiem defaultu', () => {
+    // Sonnet 5 jest jednocześnie celem tego aliasu i wartością CLAUDE_DEFAULT_MODEL,
+    // więc sama normalizeClaudeModelId('claude-sonnet-4-6') nie odróżnia "rozwiązane
+    // przez alias" od "spadło na default". Ta asercja sprawdza samą definicję.
+    expect(
+      CLAUDE_MODEL_DEFINITIONS.find((d) => d.id === 'claude-sonnet-5')!.aliases
+    ).toContain('claude-sonnet-4-6');
+  });
+
   it('przyjmuje starą datowaną formę Haiku', () => {
     expect(normalizeClaudeModelId('claude-haiku-4-5-20251001')).toBe('claude-haiku-4-5');
   });
