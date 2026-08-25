@@ -136,8 +136,15 @@ ownership of files in the mounted `.claude` directory.
 ### What you get from the mounted `.claude`
 
 Skills, subagents, `CLAUDE.md`, commands, and hooks all pass through from the
-mounted host `.claude` directory — measured on this branch: skills 5→24,
-commands 15→36, subagents 4→10, and a deny-type hook actually blocked a write
+mounted host `.claude` directory. Subagent count follows a fixed rule: 4
+built-in (`general-purpose`, `statusline-setup`, `Explore`, `Plan`) plus one
+per definition file in the mounted `agents/` directory, plus any
+project-level agent definitions the project itself supplies — true for any
+`agents/` directory, not just this one. Skills and commands don't reduce to
+as clean a formula (commands also pick up one entry per tool a connected MCP
+server exposes), so their numbers below are a measurement of this branch's
+own `~/.claude` configuration, not a portability promise: skills went from 5
+to 24, commands from 15 to 36. A deny-type hook actually blocked a write
 attempted by the agent inside the container.
 
 Two things don't have full parity:
