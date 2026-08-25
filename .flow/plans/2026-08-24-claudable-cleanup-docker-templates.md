@@ -1180,7 +1180,9 @@ odczytem z refu. Dodaj obok deklaracji refów:
   }, [messages]);
 ```
 
-i w efekcie pollingu użyj `hasStreamingMessageRef.current`. Usuń `messages` z tablicy deps tego efektu — dziś każda przychodząca wiadomość niszczy i odtwarza interwał.
+Usuń `messages` z tablicy deps tego efektu — dziś każda przychodząca wiadomość niszczy i odtwarza interwał.
+
+**Gardę czytaj wewnątrz callbacku `setInterval`, nie przy tworzeniu efektu.** Sprawdzone: przy odczycie na etapie setupu efekt wychodzi bez utworzenia interwału, gdy SSE padnie w trakcie streamu — i nic go już nie re-triggeruje, bo `messages` właśnie wypadły z deps. Powstaje kod, który wygląda reaktywnie i nie jest. Przeniesienie `if (hasStreamingMessageRef.current) return;` do wnętrza callbacku zachowuje żywą semantykę bez przywracania churnu.
 
 - [ ] **Step 6: Przestań gubić flagę „już wczytane" przy końcu sesji**
 
@@ -1206,21 +1208,28 @@ W `app/[project_id]/chat/page.tsx` wynieś oba inline handlery przekazywane do `
 
 W JSX podmień `onAddUserMessage={(handlers) => {...}}` na `onAddUserMessage={handleChatHandlersReady}` i `onSessionStatusChange={(isRunningValue) => {...}}` na `onSessionStatusChange={handleSessionStatusChange}`.
 
-Logikę auto-startu preview, która była w inline handlerze (`hasInitialPrompt && !agentWorkComplete && !previewUrl` → `start()`), przenieś do osobnego efektu — ale reagującego na **przejście** `true → false`, nie na sam fakt, że `isRunning` jest `false`. Bez refu efekt odpaliłby się na pierwszym renderze, przed startem agenta, i uruchomił preview na pustym projekcie:
+Logikę auto-startu preview, która była w inline handlerze (`hasInitialPrompt && !agentWorkComplete && !previewUrl` → `start()`), przenieś do osobnego efektu reagującego na **zbocze opadające** — ale **nie na `isRunning`**.
+
+**`isRunning` nie znaczy „agent pracuje".** Trasa `/act` wraca natychmiast (`"AI execution started"`), a praca agenta leci w tle jako nieoczekiwany promise. Oba wysyłacze w rodzicu zerują `isRunning` w `finally` zaraz po powrocie POST-a — czyli **pierwsze zbocze opadające pada w momencie startu agenta, nie jego końca**. Bramkowanie na tym utrwaliłoby `taskComplete=true` przed ukończeniem i odpaliło preview na projekcie, który agent dopiero szkieletuje.
+
+Bramkuj na `hasActiveRequests` z `useUserRequests` — ten sygnał odzwierciedla wiersze `UserRequest` po stronie serwera, czyli faktyczny stan runu, i jest już dostępny w rodzicu:
 
 ```ts
-  const prevIsRunningRef = useRef(false);
+  const prevHasActiveRequestsRef = useRef(false);
   useEffect(() => {
-    const wasRunning = prevIsRunningRef.current;
-    prevIsRunningRef.current = isRunning;
-    // Tylko zbocze opadające: agent skończył pracę, a nie „agent nie pracuje".
-    if (!wasRunning || isRunning) return;
+    const wasActive = prevHasActiveRequestsRef.current;
+    prevHasActiveRequestsRef.current = hasActiveRequests;
+    // Tylko zbocze opadające: run zniknął z listy aktywnych, czyli agent
+    // faktycznie skończył. `isRunning` tego nie znaczy — patrz wyżej.
+    if (!wasActive || hasActiveRequests) return;
     if (!hasInitialPrompt || agentWorkComplete || previewUrl) return;
     setAgentWorkComplete(true);
     localStorage.setItem(`project_${projectId}_taskComplete`, 'true');
     start();
-  }, [isRunning, hasInitialPrompt, agentWorkComplete, previewUrl, projectId, start]);
+  }, [hasActiveRequests, hasInitialPrompt, agentWorkComplete, previewUrl, projectId, start]);
 ```
+
+Świadomy kompromis na tym etapie: dopóki Task 11 nie doda rekoncyliacji, run przerwany restartem serwera zostawia `UserRequest` w `processing` na zawsze, więc `hasActiveRequests` może zostać `true` i preview nie wystartuje automatycznie. To awaria w bezpieczną stronę — brak przedwczesnego startu, nie przedwczesny start — i Task 11 ją zamyka trzy zadania dalej.
 
 Typ `MessageHandlers` weź z istniejącej deklaracji propsa `onAddUserMessage` w `ChatLogProps` — jeśli jest tam typ inline, wyeksportuj go z `ChatLog.tsx` i zaimportuj tutaj, zamiast powtarzać kształt.
 
