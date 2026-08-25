@@ -3677,6 +3677,21 @@ complete, so the placeholder cast is gone."
 
 ### Task 18: Podłącz `templateType` od bazy do UI (decyzja 8, znalezisko H)
 
+**Zanim cokolwiek napiszesz: w drzewie są dwie niezgodne unie typu template'u i jedna z nich zablokuje Ci kompilację.** Ustaliłem to sam po Task 16, więc nie powtarzaj sprawdzenia — powtórz tylko to, co poniżej oznaczam jako do zweryfikowania.
+
+| Co | Gdzie | Wartości |
+|---|---|---|
+| `TemplateId` (nowy, z rejestru) | `lib/templates/meta.ts` | `'nextjs' \| 'astro'` |
+| `TemplateType` (zastany, **zdublowany**) | `types/shared/project.ts:21` **oraz** `types/backend/project.ts:7` | `'nextjs' \| 'react' \| 'vue' \| 'custom'` |
+
+Konsumenci zastanej unii: `types/server/project.ts:12` i `types/backend/project.ts:21`, oba jako `templateType?: TemplateType`. Przy `strict: true` przypisanie `'astro'` do takiego pola **nie skompiluje się** — więc to nie jest kosmetyka do odłożenia, tylko pierwsza rzecz, o którą się potkniesz.
+
+Wartości `'react'`, `'vue'` i `'custom'` nie są **nigdzie** ustawiane; jedyną zapisywaną wartością jest `'nextjs'` (`lib/services/project.ts`). To fantomy w typie, nie obsługiwane template'y.
+
+Fałszywy alarm, który sam sprawdziłem, żebyś nie tracił na niego czasu: `app/[project_id]/chat/page.tsx:928` i `:1022` mają `case 'vue':`, ale to mapa rozszerzeń plików na języki podświetlania składni — **nie ma związku z template'ami**. Nie ruszaj. To ta sama klasa pomyłki co `UserRequest.cliPreference`, która jest żywą kolumną innego modelu, a nie pozostałością po `Project.preferredCli`.
+
+**Do zweryfikowania przez Ciebie:** czy po uzgodnieniu unii któryś z plików `types/shared/project.ts`, `types/backend/project.ts`, `types/server/project.ts` nie zostaje bez żywego konsumenta. `tsconfig.json` nie ma `noUnusedLocals`, więc `tsc` o tym nie powie. Sprawdź każdy eksport osobno, grepem wykluczającym, i usuwaj wyłącznie to, co osierociła Twoja zmiana — resztę zgłoś.
+
 **Files:**
 - Modify: `lib/services/project.ts`
 - Modify: `app/api/projects/route.ts`
