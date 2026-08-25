@@ -1825,11 +1825,14 @@ exactly that."
 
 **Files:**
 - Modify: `lib/services/user-requests.ts`
+- Modify: `lib/services/preview.ts` (dodanie `reconcileStalePreviews` — kroki 5-6)
+- Modify: `instrumentation-node.ts` (utworzony w Task 9 — **nie** `instrumentation.ts`, który jest wyłącznie bramą runtime'u)
+- Modify: `hooks/useUserRequests.ts` (hartowanie ścieżek awaryjnych — przekazanie z Task 8)
 - Create: `tests/services/reconcile-requests.test.ts`
-- Modify: `instrumentation.ts` (utworzony w Task 9)
+- Create: `tests/services/reconcile-previews.test.ts`
 
 **Interfaces:**
-- Consumes: `instrumentation.ts` z Task 9.
+- Consumes: `instrumentation-node.ts` z Task 9 — plik z **synchronicznym** handlerem sygnałów. Rekoncyliacja jest osobną ścieżką wykonywaną przy starcie, przed rejestracją handlerów; nie wolno jej wsadzić do handlera (Task 9 ustalił pomiarem, że żadne `await` tam nie dobiega).
 - Produces:
   ```ts
   export interface StaleRequestClient {
@@ -1842,6 +1845,8 @@ exactly that."
   }
   export const RECONCILABLE_STATUSES: string[];  // ['pending','processing','active','running']
   export async function reconcileStaleRequests(client?: StaleRequestClient): Promise<number>;
+  // lib/services/preview.ts
+  export async function reconcileStalePreviews(): Promise<number>;
   ```
 
 Dlaczego to jest potrzebne: jedynym pisarzem statusu jest proces, który wykonuje agenta. Gdy padnie w trakcie, wiersz zostaje w `processing` na zawsze, `/requests/active` liczy go jako aktywny, a UI pollinguje co 500 ms run, którego nie ma.
