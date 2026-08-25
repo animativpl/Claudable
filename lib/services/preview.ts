@@ -958,8 +958,10 @@ class PreviewManager {
   }
 
   /**
-   * Zamyka wszystkie dev-servery. Wołane z handlera sygnałów procesu —
-   * bez tego ubicie Claudable zostawia je żywe, trzymające porty.
+   * Zamyka wszystkie dev-servery. Dla ścieżek, które mają czas na
+   * asynchroniczny zapis do bazy (np. zamykanie z UI). Nie wołane z
+   * handlera sygnałów — tam nic asynchronicznego nie ma gwarancji
+   * dobiegnięcia, patrz `killAllSync()`.
    */
   public async stopAll(): Promise<void> {
     const ids = Array.from(this.processes.keys());
@@ -970,6 +972,25 @@ class PreviewManager {
         console.error(`[PreviewManager] Failed to stop preview for ${projectId}:`, error);
       }
     }
+  }
+
+  /**
+   * Ubija drzewa procesów wszystkich dev-serverów. WYŁĄCZNIE synchronicznie:
+   * wołane z handlera sygnałów, gdzie nic asynchronicznego nie ma gwarancji
+   * dobiegnięcia. Nie dotyka bazy — stan previewUrl/previewPort naprawia
+   * rekoncyliacja przy następnym starcie (Task 11).
+   */
+  public killAllSync(): number {
+    let killed = 0;
+    for (const [projectId, processInfo] of this.processes) {
+      if (killProcessTree(processInfo.process?.pid, 'SIGTERM')) {
+        killed += 1;
+      } else {
+        console.error(`[PreviewManager] Failed to kill preview process tree for ${projectId}`);
+      }
+    }
+    this.processes.clear();
+    return killed;
   }
 
   public getStatus(projectId: string): PreviewInfo {
