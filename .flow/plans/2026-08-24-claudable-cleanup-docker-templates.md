@@ -4207,7 +4207,7 @@ Ustalone przeze mnie na bazie gałęzi `b919ae8`, więc nie zgaduj i nie powtarz
 
 | Typ | Kto go używał w `b919ae8` |
 |---|---|
-| `CLIModel`, `CLIOption` | `CreateProjectModal.tsx` (usunięty w Task 6), `AIAssistantSettings.tsx`, `GlobalSettings.tsx`, `hooks/useCLI.ts`, `lib/utils/cliOptions.ts` |
+| `CLIModel`, `CLIOption` | **KOREKTA po Task 21:** ci konsumenci importowali z `@/types/cli` (siostrzany plik, już usunięty), **nie** z `types/backend/cli.ts`. Kopie w `types/backend/cli.ts` były martwe **także w bazie** — zaszłość repo, nie trup tej gałęzi. Zostają. Nazwałem symbole poprawnie i przypisałem je do złego pliku; implementer sprawdził `git grep` po bazie i zastosował regułę z tej samej sekcji. |
 | `CLIType`, `SessionType`, `Session` | wyłącznie inne pliki typów: `types/cli.ts`, `types/shared/cli.ts`, `types/project.ts`, `types/shared/project.ts` |
 | zdublowany `GlobalSettings` | duplikat w `types/backend/cli.ts` |
 
