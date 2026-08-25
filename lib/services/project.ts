@@ -5,13 +5,8 @@
 import { prisma } from '@/lib/db/client';
 import type { Project, CreateProjectInput, UpdateProjectInput } from '@/types/backend';
 import fs from 'fs/promises';
-import path from 'path';
 import { normalizeModelId, getDefaultModelForCli } from '@/lib/constants/cliModels';
-
-const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
+import { resolveProjectRoot } from '@/lib/utils/project-path';
 
 /**
  * Retrieve all projects
@@ -47,7 +42,7 @@ export async function getProjectById(id: string): Promise<Project | null> {
  */
 export async function createProject(input: CreateProjectInput): Promise<Project> {
   // Create project directory
-  const projectPath = path.join(PROJECTS_DIR_ABSOLUTE, input.project_id);
+  const projectPath = resolveProjectRoot(input.project_id);
   await fs.mkdir(projectPath, { recursive: true });
 
   // Create project in database
