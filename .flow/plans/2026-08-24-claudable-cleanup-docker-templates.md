@@ -1355,8 +1355,8 @@ const isAlive = (pid: number): boolean => {
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('killProcessTree', () => {
-  it('zwraca false dla braku pid', () => {
-    expect(killProcessTree(undefined)).toBe(false);
+  it('nie sygnalizuje przy braku pid', () => {
+    expect(killProcessTree(undefined)).toEqual({ signalled: false, scope: 'single' });
   });
 
   it.skipIf(process.platform === 'win32')('ubija wnuka, nie tylko lidera grupy', async () => {
@@ -1375,12 +1375,27 @@ describe('killProcessTree', () => {
     expect(Number.isInteger(grandchildPid)).toBe(true);
     expect(isAlive(grandchildPid)).toBe(true);
 
-    expect(killProcessTree(child.pid!)).toBe(true);
+    // Liderowi grupy MUSI odpowiedzieć scope 'group'. Gdyby wyszło 'single',
+    // znaczyłoby to, że `detached` nie zadziałało i wnuk przeżyje.
+    expect(killProcessTree(child.pid!)).toEqual({ signalled: true, scope: 'group' });
     await wait(900);
 
     expect(isAlive(grandchildPid)).toBe(false);
     expect(isAlive(child.pid!)).toBe(false);
     await fs.rm(marker, { force: true });
+  });
+
+  it.skipIf(process.platform === 'win32')('raportuje single dla procesu, który NIE jest liderem grupy', async () => {
+    // Strażnik linchpina: bez `detached` nie ma grupy do ubicia, więc funkcja
+    // MUSI to powiedzieć, a nie zwrócić fałszywego sukcesu. To jest ta różnica,
+    // przez którą usunięcie `detached` z preview.ts przestaje być ciche.
+    const child = spawn('sh', ['-c', 'sleep 30'], { stdio: 'ignore' });
+    await wait(400);
+    const result = killProcessTree(child.pid!);
+    expect(result.signalled).toBe(true);
+    expect(result.scope).toBe('single');
+    await wait(400);
+    expect(isAlive(child.pid!)).toBe(false);
   });
 });
 ```
@@ -1395,25 +1410,47 @@ Expected: FAIL — nie da się rozwiązać importu
 Utwórz `lib/services/process-tree.ts`:
 
 ```ts
+export interface KillResult {
+  /** Czy udało się dostarczyć sygnał w ogóle. */
+  signalled: boolean;
+  /**
+   * `'group'` — ubito całą grupę procesów, czyli także wnuki.
+   * `'single'` — grupy nie było, ubito wyłącznie wskazany proces.
+   */
+  scope: 'group' | 'single';
+}
+
 /**
- * Dev-server projektu to `npm run dev`, który spawnuje własne dziecko.
- * Zabicie samego npm zostawia wnuka trzymającego port, dlatego procesy
- * startują jako liderzy grupy (`detached: true`) i giną całą grupą.
+ * Dev-server projektu to `npm run dev`, który spawnuje własne dziecko —
+ * zabicie samego npm zostawia wnuka trzymającego port.
+ *
+ * Na platformach POSIX procesy preview startują jako liderzy grupy
+ * (`detached: true`) i giną całą grupą. Na Windowsie `detached` jest
+ * wyłączone i grupy nie ma, więc ubijany jest wyłącznie wskazany proces —
+ * wnuk może przeżyć. To znane ograniczenie platformy, nie przeoczenie.
+ *
+ * Wartość zwracana ROZRÓŻNIA te dwa przypadki celowo. Zwracanie samego
+ * `true` sprawiało, że usunięcie `detached` z miejsca spawnu było ciche:
+ * grupa nie istnieje, fallback ubija wrappera, funkcja mówi „sukces",
+ * a wnuk dalej trzyma port.
  */
-export function killProcessTree(pid: number | undefined, signal: NodeJS.Signals = 'SIGTERM'): boolean {
+export function killProcessTree(
+  pid: number | undefined,
+  signal: NodeJS.Signals = 'SIGTERM'
+): KillResult {
   if (!pid || pid <= 0) {
-    return false;
+    return { signalled: false, scope: 'single' };
   }
   try {
     // Ujemny pid = cała grupa procesów, której liderem jest pid.
     process.kill(-pid, signal);
-    return true;
+    return { signalled: true, scope: 'group' };
   } catch {
     try {
       process.kill(pid, signal);
-      return true;
+      return { signalled: true, scope: 'single' };
     } catch {
-      return false;
+      return { signalled: false, scope: 'single' };
     }
   }
 }
@@ -1438,7 +1475,7 @@ W `lib/services/preview.ts`, w wywołaniu `spawn` uruchamiającym `npm run dev` 
       }
 ```
 
-- [ ] **Step 6: Ubijaj grupę w `stop()` i dodaj `stopAll()`**
+- [ ] **Step 6: Ubijaj grupę w `stop()` i dodaj `killAllSync()`**
 
 W `lib/services/preview.ts` dodaj import:
 
@@ -1449,10 +1486,18 @@ import { killProcessTree } from './process-tree';
 W metodzie `stop()` zastąp `processInfo.process?.kill('SIGTERM');` tym:
 
 ```ts
-      killProcessTree(processInfo.process?.pid, 'SIGTERM');
+      const result = killProcessTree(processInfo.process?.pid, 'SIGTERM');
+      if (result.signalled && result.scope === 'single') {
+        console.warn(
+          `[PreviewManager] Killed only the wrapper for ${projectId} — no process group, ` +
+            `so a child may still hold its port. Check that spawn uses detached.`
+        );
+      }
 ```
 
-Dodaj **dwie** metody publiczne w klasie `PreviewManager`, obok `stop()`. Rozdzielenie jest istotne i wynika z pomiaru — uzasadnienie niżej.
+**Nie wyrzucaj wyniku.** Ta ścieżka — „użytkownik kliknął Stop" — jest dokładnie tą, na której mieszkał sztandarowy błąd tego zadania. Jeśli tu przemilczysz `scope: 'single'`, regresja `detached` będzie widoczna wyłącznie przy zamykaniu serwera, a na tej ścieżce nie będzie nawet ostrzeżenia.
+
+Dodaj **jedną** metodę publiczną w klasie `PreviewManager`, obok `stop()`:
 
 ```ts
   /**
@@ -1460,39 +1505,34 @@ Dodaj **dwie** metody publiczne w klasie `PreviewManager`, obok `stop()`. Rozdzi
    * wołane z handlera sygnałów, gdzie nic asynchronicznego nie ma gwarancji
    * dobiegnięcia. Nie dotyka bazy — stan `previewUrl`/`previewPort` naprawia
    * rekoncyliacja przy następnym starcie (Task 11).
+   *
+   * Zwraca rozbicie na `group` i `single`, bo `single` znaczy „wnuk mógł
+   * przeżyć" i wołający musi móc to zgłosić jako ostrzeżenie, a nie wliczyć
+   * do sukcesu.
    */
-  public killAllSync(): number {
-    let killed = 0;
+  public killAllSync(): { group: number; single: number } {
+    let group = 0;
+    let single = 0;
     for (const [projectId, processInfo] of this.processes.entries()) {
-      if (killProcessTree(processInfo.process?.pid, 'SIGTERM')) {
-        killed += 1;
-      } else {
+      const result = killProcessTree(processInfo.process?.pid, 'SIGTERM');
+      if (!result.signalled) {
         console.error(`[PreviewManager] Could not signal preview tree for ${projectId}`);
+        continue;
+      }
+      if (result.scope === 'group') {
+        group += 1;
+      } else {
+        single += 1;
       }
     }
     this.processes.clear();
-    return killed;
-  }
-
-  /**
-   * Pełne zamknięcie z zapisem stanu do bazy. Dla ścieżek, które mają czas —
-   * NIE dla handlera sygnałów.
-   */
-  public async stopAll(): Promise<void> {
-    const ids = Array.from(this.processes.keys());
-    for (const projectId of ids) {
-      try {
-        await this.stop(projectId);
-      } catch (error) {
-        console.error(`[PreviewManager] Failed to stop preview for ${projectId}:`, error);
-      }
-    }
+    return { group, single };
   }
 ```
 
-**Dlaczego dwie, a nie jedna — zmierzone, nie założone.** Pierwsza wersja tego zadania wołała `await previewManager.stopAll()` z handlera sygnałów. Zachowanie odtworzone trzykrotnie na dwóch różnych PID-ach pod `next dev`: linia `SIGTERM received` loguje się, drzewo procesów **ginie**, ale linia po `await` nigdy się nie pojawia — Next wychodzi z procesu przed dobiegnięciem asynchronicznego ogona. Ubijanie działało wyłącznie dlatego, że synchroniczny `process.kill` wygrywał wyścig, bez żadnej gwarancji kolejności.
+**`stopAll()` nie powstaje.** Wcześniejsza wersja tego planu kazała ją dodać „dla ścieżek, które mają czas" — takiej ścieżki w repo nie ma, bo trasa API zatrzymuje pojedyncze preview przez `stop(projectId)`. Funkcja na zapas narusza zakaz nieproszonej elastyczności z Global Constraints.
 
-Wniosek: **w handlerze sygnałów robimy tylko to, co synchroniczne.** Ubicie grupy procesów takie jest. Zapis do bazy nie jest i nie należy tam.
+**Dlaczego w handlerze sygnałów nie wolno nic asynchronicznego — zmierzone, nie założone.** Pierwsza wersja tego zadania wołała `await previewManager.stopAll()`. Odtworzone trzykrotnie na dwóch różnych PID-ach pod `next dev`: linia startowa logowała się, drzewo procesów **ginęło**, ale linia po `await` nigdy się nie pojawiała — Next wychodzi z procesu przed dobiegnięciem asynchronicznego ogona. Ubijanie działało wyłącznie dlatego, że synchroniczny `process.kill` wygrywał wyścig.
 
 - [ ] **Step 7: Podłącz handler sygnałów w `instrumentation.ts`**
 
@@ -1531,8 +1571,14 @@ let shuttingDown = false;
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
-  const killed = previewManager.killAllSync();
-  console.log(`[Shutdown] ${signal}: killed ${killed} preview process tree(s)`);
+  const { group, single } = previewManager.killAllSync();
+  console.log(`[Shutdown] ${signal}: killed ${group} preview process tree(s)`);
+  if (single > 0) {
+    console.warn(
+      `[Shutdown] ${signal}: ${single} preview(s) had no process group — ` +
+        `children may still hold ports. Check that spawn uses detached.`
+    );
+  }
   process.exit(0);
 }
 
@@ -1544,7 +1590,23 @@ Log jest **po** ubiciu, nie przed — dzięki temu jego obecność w wyjściu do
 
 Sprawdź, czy `next.config.js` nie wyłącza instrumentacji. W Next 15 hook jest domyślnie włączony i nie wymaga flagi.
 
-- [ ] **Step 8: Dowód z uruchomienia — brak sierot**
+- [ ] **Step 8: Przekazuj sygnały z `scripts/run-web.js` do procesu potomnego**
+
+`scripts/run-web.js` spawnuje serwer i **nie rejestruje żadnych handlerów sygnałów**. Ctrl+C działa, bo sygnał z terminala idzie do całej grupy pierwszoplanowej, ale jawny `kill -TERM` na pid wrappera kończy go domyślną akcją i zostawia dziecko niezasygnalizowane — czyli handler z kroku 7 nie odpala i preview żyją dalej. To ta sama pułapka, którą krok 7 naprawia o poziom wyżej.
+
+Dopisz przekazywanie `SIGINT` i `SIGTERM` do procesu potomnego. Wzorzec jest w `scripts/run-desktop.js`.
+
+**Warunek żywotności dziecka sprawdzaj przez `exitCode` i `signalCode`, nie przez `child.killed`.** `child.killed` znaczy „wysłaliśmy już sygnał", nie „dziecko żyje" — przy tym warunku relay jest jednostrzałowy, a rejestracja listenera znosi domyślną akcję wrappera, więc drugi `kill -TERM` nie zostanie przekazany i nie ubije już nic:
+
+```js
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill(signal);
+  }
+```
+
+**Uwaga na dodatkowy przeskok, którego nie zakładaj:** wrapper spawnuje `npx`, więc `child.kill()` sygnalizuje `npx`, nie serwer. Żeby handler z kroku 7 odpalił, sygnał musi przejść `npx` → serwer. Jeśli w dowodzie z kroku 10 linia `[Shutdown]` nie pojawi się przy sygnale wysłanym do wrappera, **zgłoś to** — znaczy, że `npx` nie retransmituje i trzeba spawnować binarkę bezpośrednio.
+
+- [ ] **Step 9: Dowód z uruchomienia — brak sierot**
 
 **Nie używaj Ctrl+C jako dowodu.** Dziś preview startuje bez `detached`, więc siedzi w tej samej grupie procesów pierwszoplanowych co Claudable i Ctrl+C już go zabija — test przeszedłby przed zmianą. Po dodaniu `detached: true` Ctrl+C przestaje go dosięgać i jedyną obroną jest handler z kroku 7. Dowód musi więc celować w realny scenariusz z audytu: sygnał do samego procesu serwera.
 
@@ -1558,13 +1620,13 @@ kill -TERM $SERVER_PID
 sleep 3
 ps -ef | grep "[d]ata/projects" | wc -l          # oczekiwane: 0
 ```
-Expected: pierwszy odczyt ≥ 1, drugi `0`, a w logach linia `[Shutdown] SIGTERM: killed N preview process tree(s)` z `N` równym pierwszemu odczytowi.
+Expected: pierwszy odczyt ≥ 1, drugi `0`, a w logach linia `[Shutdown] SIGTERM: killed N preview process tree(s)` z `N` równym pierwszemu odczytowi — i **bez** towarzyszącego ostrzeżenia o braku grupy procesów.
 
 Ta linia jest logowana **po** ubiciu, więc jej obecność dowodzi wykonania pracy. Jeśli jej nie ma, a procesy jednak zginęły — znaczy, że zginęły z innego powodu niż Twój handler i dowód jest nieważny; zgłoś to jako BLOCKED z logiem.
 
 Powtórz ten sam pomiar dla kontenera w Task 20: `docker compose stop` i `ps` w środku kontenera przed zatrzymaniem.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add lib/services/process-tree.ts tests/services/process-tree.test.ts lib/services/preview.ts instrumentation.ts instrumentation-node.ts scripts/run-web.js
@@ -3987,7 +4049,7 @@ docker compose logs claudable | grep -A 20 "Session initialized"
 
 Dwie rzeczy do **zobaczenia**, nie założenia:
 - Czy `instrumentation.ts` i `instrumentation-node.ts` trafiają do bundla przy `output: 'standalone'`. Statyczny string w `await import('./instrumentation-node')` powinien być śledzony, ale to trzeba potwierdzić.
-- Czy `docker compose stop` wypisuje w logach linię `[Shutdown] SIGTERM: …` z Task 9. Jeśli nie — sygnał nie dotarł do właściwego procesu; użyj `exec` w `CMD` albo formy tablicowej bez powłoki.
+- Czy `docker compose stop` wypisuje w logach linię `[Shutdown] SIGTERM: …` z Task 9. Jeśli nie — **najpierw sprawdź, czy to nie artefakt strumienia, a nie brak sygnału.** Handler woła `process.exit(0)` zaraz po logu, a zapisy na `stdout` w Node są asynchroniczne, gdy strumień jest **pipe** — czyli dokładnie tak, jak w kontenerze. `process.exit` ich nie flushuje, więc linia może zostać obcięta, mimo że praca się wykonała. Rozróżnij te dwa przypadki: jeśli porty preview zostały zwolnione, a linii nie ma, problem jest w strumieniu; jeśli porty zostały zajęte, sygnał nie dotarł i wtedy użyj `exec` w `CMD` albo formy tablicowej bez powłoki.
 
 **Sprawdź też, że `/data` jest zapisywalny dla użytkownika kontenera.** Skrypt backupu liczy katalog kopii z `path.dirname(dbPath)`, więc przy `DATABASE_URL=file:/data/cc.db` kopie lądują w `/data/backups` — czyli na zamontowanym wolumenie, a nie w warstwie obrazu. To zamierzone i warte zachowania, ale wymaga, żeby `user:` z compose miał prawo pisać w tym katalogu. Test: `docker compose exec claudable npm run db:backup` musi wyjść zerowo i utworzyć plik widoczny na hoście.
 
