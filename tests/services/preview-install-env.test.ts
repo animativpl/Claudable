@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildInstallEnv } from '@/lib/services/preview';
+import { CLAUDE_SESSION_VARS, withEnv } from './support/claude-session-env';
 
 // `PreviewManager.installDependencies()` (the standalone `npm install` path
 // behind `POST /api/projects/[project_id]/install-dependencies`, independent
@@ -15,46 +16,11 @@ import { buildInstallEnv } from '@/lib/services/preview';
 // `buildDevServerEnv`'s signature to fit here would mean inventing a fake
 // port just to satisfy it — this is the lower seam instead: scrubbing alone.
 describe('buildInstallEnv', () => {
-  const withEnv = <T>(overrides: Record<string, string>, run: () => T): T => {
-    const previous: Record<string, string | undefined> = {};
-    for (const [key, value] of Object.entries(overrides)) {
-      previous[key] = process.env[key];
-      process.env[key] = value;
-    }
-    try {
-      return run();
-    } finally {
-      for (const key of Object.keys(overrides)) {
-        if (previous[key] === undefined) delete process.env[key];
-        else process.env[key] = previous[key];
-      }
-    }
-  };
-
-  // Same list as `preview-dev-env.test.ts`, taken from a real session rather
-  // than from memory (`CLAUDE_JOB_DIR` is easy to forget by enumeration).
-  const sessionVars = [
-    'CLAUDECODE',
-    'CLAUDE_CODE_ATTRIBUTION_HEADER',
-    'CLAUDE_CODE_CHILD_SESSION',
-    'CLAUDE_CODE_ENABLE_TELEMETRY',
-    'CLAUDE_CODE_ENTRYPOINT',
-    'CLAUDE_CODE_EXECPATH',
-    'CLAUDE_CODE_MESSAGING_SOCKET',
-    'CLAUDE_CODE_MESSAGING_TOKEN',
-    'CLAUDE_CODE_OAUTH_TOKEN',
-    'CLAUDE_CODE_SESSION_ID',
-    'CLAUDE_CONFIG_DIR',
-    'CLAUDE_EFFORT',
-    'CLAUDE_JOB_DIR',
-    'CLAUDE_PID',
-  ];
-
   it('odcina wszystkie zmienne sesji Claude Code, bez allowlisty', () => {
-    const overrides = Object.fromEntries(sessionVars.map((key) => [key, 'x']));
+    const overrides = Object.fromEntries(CLAUDE_SESSION_VARS.map((key) => [key, 'x']));
     const env = withEnv(overrides, () => buildInstallEnv());
 
-    for (const key of sessionVars) {
+    for (const key of CLAUDE_SESSION_VARS) {
       expect(env).not.toHaveProperty(key);
     }
   });

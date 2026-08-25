@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildDevServerEnv } from '@/lib/services/preview';
+import { CLAUDE_SESSION_VARS, withEnv } from './support/claude-session-env';
 
 // Środowisko dev-servera projektu użytkownika dziedziczyło całe `process.env`
 // platformy. Dwie konsekwencje, obie realne:
@@ -13,49 +14,13 @@ import { buildDevServerEnv } from '@/lib/services/preview';
 // W odróżnieniu od scrubu z `claude-options.ts` nie ma tu allowlisty:
 // dev-server nie potrzebuje żadnej ze zmiennych sesji Claude Code.
 describe('buildDevServerEnv', () => {
-  const withEnv = <T>(overrides: Record<string, string>, run: () => T): T => {
-    const previous: Record<string, string | undefined> = {};
-    for (const [key, value] of Object.entries(overrides)) {
-      previous[key] = process.env[key];
-      process.env[key] = value;
-    }
-    try {
-      return run();
-    } finally {
-      for (const key of Object.keys(overrides)) {
-        if (previous[key] === undefined) delete process.env[key];
-        else process.env[key] = previous[key];
-      }
-    }
-  };
-
-  // Lista wzięta z realnego środowiska sesji (12 zmiennych), a nie z pamięci —
-  // `CLAUDE_JOB_DIR` nie było w liście z Task 13 i wyliczanie znowu by go
-  // przepuściło. Scrub łapie prefiks, nie znane nazwy.
-  const sessionVars = [
-    'CLAUDECODE',
-    'CLAUDE_CODE_ATTRIBUTION_HEADER',
-    'CLAUDE_CODE_CHILD_SESSION',
-    'CLAUDE_CODE_ENABLE_TELEMETRY',
-    'CLAUDE_CODE_ENTRYPOINT',
-    'CLAUDE_CODE_EXECPATH',
-    'CLAUDE_CODE_MESSAGING_SOCKET',
-    'CLAUDE_CODE_MESSAGING_TOKEN',
-    'CLAUDE_CODE_OAUTH_TOKEN',
-    'CLAUDE_CODE_SESSION_ID',
-    'CLAUDE_CONFIG_DIR',
-    'CLAUDE_EFFORT',
-    'CLAUDE_JOB_DIR',
-    'CLAUDE_PID',
-  ];
-
   it('odcina wszystkie zmienne sesji Claude Code, bez allowlisty', () => {
-    const overrides = Object.fromEntries(sessionVars.map((key) => [key, 'x']));
+    const overrides = Object.fromEntries(CLAUDE_SESSION_VARS.map((key) => [key, 'x']));
     const env = withEnv(overrides, () =>
       buildDevServerEnv(3107, 'http://localhost:3107')
     );
 
-    for (const key of sessionVars) {
+    for (const key of CLAUDE_SESSION_VARS) {
       expect(env).not.toHaveProperty(key);
     }
   });
