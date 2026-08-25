@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.flow
+data
+dist
+npm-debug.log*
+.env
+.env.local
+*.md
+!README.md
+tests
+vitest.config.ts
