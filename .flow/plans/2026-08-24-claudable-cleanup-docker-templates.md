@@ -3784,7 +3784,11 @@ npm error command sh -c next start --port 3000 --hostname 0.0.0.0
 npm error signal SIGTERM
 ```
 
-Zero linii `[Shutdown]` w logu, kod wyjścia **1** zamiast 0. `npx next start` sam forkuje powłokę, więc `exec` exec-uje w `npx`, a nie w proces Node — sygnał ginie o poziom za wcześnie i handler z Task 9, kosztujący trzy rundy poprawek, nigdy się nie wykonuje. Dev-servery preview zostają po `docker stop`.
+Zero linii `[Shutdown]` w logu, kod wyjścia **1** zamiast 0. Handler z Task 9, kosztujący trzy rundy poprawek, nigdy się nie wykonuje; dev-servery preview zostają po `docker stop`.
+
+**Korekta przyczyny — pierwsza wersja tego zapisu była szersza niż pomiar.** Napisałem tu, że sygnału nie może dostać `next start`. Winowajcą jest **`npx`**, który forkuje własną powłokę: `exec` exec-uje w `npx`, a nie w proces Node. Recenzent zbudował i uruchomił trzecią drogę — pełne `node_modules` plus `exec node node_modules/next/dist/bin/next start` — i ta **dostaje sygnał poprawnie**: exit 0, linia handlera obecna.
+
+**Decyzja o standalone zostaje, ale na innych podstawach, niż zapisałem:** obraz 885 MB zamiast 2.92 GB, oraz to, że Next sam ostrzega, iż `next start` nie współpracuje z `output: 'standalone'` („Use `node .next/standalone/server.js` instead") — czyli droga z briefu uruchamia kombinację, którą framework deklaruje jako niewspieraną. Zapisuję to, bo kolejne zadania czytają ten plan jako fakt, a nieprawdziwa przyczyna prowadzi do nieprawdziwych wniosków.
 
 `server.js` z wyjścia standalone jest zwykłym skryptem node, więc `exec node server.js` czyni go PID 1 i sygnał dochodzi bezpośrednio. Zweryfikowane: `[Shutdown] SIGTERM: killed N preview process tree(s)` i kod wyjścia **0**. Przy okazji potwierdzone to, co linia niżej w Task 20 kazała sprawdzić: serwer standalone **wykonuje hook instrumentacji** — obie połowy, bo rekoncyliacja z Task 11 też odpaliła (`[UserRequests] Reconciled 1 request(s)`, `[PreviewManager] Cleared stale preview state for 1 project(s)`).
 
@@ -4130,7 +4134,10 @@ Reguła: **ustawiasz zmienną `CLAUDE_*` w kontenerze → dopisujesz ją do allo
 
 **Dwie rzeczy przekazane wprost z Task 19 — nie zgaduj ich i nie sprawdzaj od nowa:**
 
-- **Katalog konfiguracyjny agenta w obrazie to `/home/node/.claude`, nie `/root/.claude`.** Obraz działa jako użytkownik `node`, a `resolveClaudeConfigDir()` idzie za `$HOME` (`lib/services/cli/claude-config-dir.ts`). Pierwszeństwo ma `CLAUDE_CONFIG_DIR`, więc montując katalog `.claude` użytkownika ustaw tę zmienną jawnie zamiast liczyć na ścieżkę domyślną. **Pamiętaj o regule allowlisty opisanej niżej** — `CLAUDE_CONFIG_DIR` jest na niej i musi tam zostać.
+- **Katalog konfiguracyjny agenta w obrazie to `/data/home/.claude`.** Zmieniony dwukrotnie w trakcie Task 19: najpierw `/root/.claude` → `/home/node/.claude` (użytkownik nierootowy), potem → `/data/home/.claude`, bo pod dowolnym uid z `user:` nie ma wpisu w `passwd` i `HOME` wskazywał na niezapisywalny `/`. Obraz ustawia `ENV HOME=/data/home`. Obraz działa jako użytkownik `node`, a `resolveClaudeConfigDir()` idzie za `$HOME` (`lib/services/cli/claude-config-dir.ts`). Pierwszeństwo ma `CLAUDE_CONFIG_DIR`, więc montując katalog `.claude` użytkownika ustaw tę zmienną jawnie zamiast liczyć na ścieżkę domyślną. **Pamiętaj o regule allowlisty opisanej niżej** — `CLAUDE_CONFIG_DIR` jest na niej i musi tam zostać.
+- **`SETTINGS_DIR` musi być w Twojej liście zmiennych.** Bez niego `/api/settings` zwraca 500 z `EACCES mkdir /app/data` — `/app` jest w obrazie tylko do odczytu. Zmierzone w Task 19, nie przewidziane w moim planie.
+- **`npm_config_cache` i `HOME` są już ustawione w obrazie** (`/data/.npm`, `/data/home`), bo bez nich instalacja zależności pod obcym uid padała z `EACCES mkdir /.npm`. Nie nadpisuj ich w compose, chyba że wiesz, po co.
+- **Znana, zaakceptowana degradacja:** pod obcym uid mirroring assetów do `/app/public/uploads` nie działa (`/app` tylko do odczytu). Jest łapany i logowany jako ostrzeżenie, więc nie ma 500 — brakuje wyłącznie `publicUrl`. Nie próbuj tego naprawiać przez rozluźnienie uprawnień `/app`.
 - **`init: true` jest teraz nośne, nie kosmetyczne.** Po przejściu na wyjście standalone PID 1 to sam Node, a nie powłoka; dev-servery projektów są jego wnukami i bez reapera zostają zombie po zakończeniu.
 
 **Właściciel plików na bind-mouncie jest rozwiązany tylko w połowie na poziomie obrazu.** Task 19 dodał `USER node` (uid 1000), więc pliki nie należą już do roota — ale bind-mount zachowuje właściciela katalogu z hosta, a uid użytkownika może być inny niż 1000. Pełne dopasowanie daje dopiero `user: "${UID}:${GID}"` w compose i **to jest Twoja robota**. Task 19 przygotował na to obraz (`chmod a+w` na katalogu silników CLI Prismy, bo pod obcym uid Prisma przerywa start sprawdzeniem zapisywalności) i zweryfikował uruchomieniem, że `--user 1001:1001` daje pliki należące do użytkownika hosta.
