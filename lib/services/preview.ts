@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { findAvailablePort } from '@/lib/utils/ports';
 import { getProjectById, updateProject, updateProjectStatus } from './project';
-import { scaffoldBasicNextApp } from '@/lib/utils/scaffold';
+import { getTemplate } from '@/lib/templates';
 import { PREVIEW_CONFIG } from '@/lib/config/constants';
 import { killProcessTree } from './process-tree';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
@@ -637,7 +637,7 @@ class PreviewManager {
       await fs.access(path.join(projectPath, 'package.json'));
     } catch {
       record(`Bootstrapping minimal Next.js app for project ${projectId}`);
-      await scaffoldBasicNextApp(projectPath, projectId);
+      await getTemplate(project.templateType).scaffold(projectPath, projectId);
     }
 
     const hadNodeModules = await directoryExists(path.join(projectPath, 'node_modules'));
@@ -718,7 +718,7 @@ class PreviewManager {
       console.log(
         `[PreviewManager] Bootstrapping minimal Next.js app for project ${projectId}`
       );
-      await scaffoldBasicNextApp(projectPath, projectId);
+      await getTemplate(project.templateType).scaffold(projectPath, projectId);
     }
 
     const previewBounds = resolvePreviewBounds();
