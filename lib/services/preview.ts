@@ -936,10 +936,12 @@ class PreviewManager {
       };
     }
 
-    try {
-      killProcessTree(processInfo.process?.pid, 'SIGTERM');
-    } catch (error) {
-      console.error('[PreviewManager] Failed to stop preview process:', error);
+    const result = killProcessTree(processInfo.process?.pid, 'SIGTERM');
+    if (result.signalled && result.scope === 'single') {
+      console.warn(
+        `[PreviewManager] Killed only the wrapper for ${projectId} — no process group, ` +
+          `so a child may still hold its port. Check that spawn uses detached.`
+      );
     }
 
     this.processes.delete(projectId);

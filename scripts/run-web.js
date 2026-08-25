@@ -179,7 +179,7 @@ async function startWebDevServer({
 // works because it reaches the whole foreground process group, but an
 // explicit kill on this pid needs an explicit relay.
 function forwardSignalToChild(child, signal) {
-  if (!child.killed) {
+  if (child.exitCode === null && child.signalCode === null) {
     child.kill(signal);
   }
 }
