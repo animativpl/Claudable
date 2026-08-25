@@ -40,19 +40,54 @@ describe('buildClaudeQueryOptions', () => {
     expect(options.settingSources).toEqual(['user', 'project', 'local']);
   });
 
-  it('odcina zmienne sesji Claude Code od procesu potomnego', () => {
-    process.env.CLAUDECODE = '1';
-    process.env.CLAUDE_CODE_SSE_PORT = '12345';
+  it('odcina wszystkie zmienne sesji Claude Code po prefiksie, zachowując allowlistę', () => {
+    // Wyliczanie zawiodło już pięć razy w tym runie (patrz dispatch Task 13
+    // fixup) — realne środowisko sesji ma więcej zmiennych CLAUDE_* niż
+    // pierwotna lista trzech. Scrub musi łapać cały prefiks, nie znane nazwy.
+    const sessionVars = [
+      'CLAUDECODE',
+      'CLAUDE_CODE_EXECPATH',
+      'CLAUDE_CODE_ATTRIBUTION_HEADER',
+      'CLAUDE_CODE_MESSAGING_SOCKET',
+      'CLAUDE_CODE_CHILD_SESSION',
+      'CLAUDE_CODE_MESSAGING_TOKEN',
+      'CLAUDE_CODE_ENABLE_TELEMETRY',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'CLAUDE_EFFORT',
+      'CLAUDE_CODE_SSE_PORT',
+      'CLAUDE_PID',
+    ];
+    const previous: Record<string, string | undefined> = {};
+    for (const key of sessionVars) {
+      previous[key] = process.env[key];
+      process.env[key] = 'x';
+    }
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    const previousOauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    process.env.CLAUDE_CONFIG_DIR = '/mnt/claude-home';
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-oauth-test';
     try {
       const options = buildClaudeQueryOptions(input);
       expect(options.env).toBeDefined();
-      expect(options.env).not.toHaveProperty('CLAUDECODE');
-      expect(options.env).not.toHaveProperty('CLAUDE_CODE_SSE_PORT');
-      // reszta środowiska musi przejść nietknięta
+      for (const key of sessionVars) {
+        expect(options.env).not.toHaveProperty(key);
+      }
+      // Allowlista musi przeżyć: bez CLAUDE_CONFIG_DIR agent nie widzi
+      // zamontowanego katalogu konfiguracyjnego i całe zadanie nie działa.
+      expect(options.env?.CLAUDE_CONFIG_DIR).toBe('/mnt/claude-home');
+      expect(options.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-oauth-test');
+      // reszta środowiska (nie-Claude) musi przejść nietknięta
       expect(options.env?.PATH).toBe(process.env.PATH);
     } finally {
-      delete process.env.CLAUDECODE;
-      delete process.env.CLAUDE_CODE_SSE_PORT;
+      for (const key of sessionVars) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
+      if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+      if (previousOauthToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = previousOauthToken;
     }
   });
 });
