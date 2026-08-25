@@ -31,16 +31,8 @@ export async function GET(_request: Request, { params }: RouteContext) {
   const { project_id, filename } = await params;
 
   try {
-
-    console.log('📸 Asset serving request:', {
-      project_id,
-      filename,
-      userAgent: _request.headers.get('user-agent')
-    });
-
     const project = await getProjectById(project_id);
     if (!project) {
-      console.log('📸 Asset serving failed: Project not found:', project_id);
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
     }
 
@@ -51,33 +43,9 @@ export async function GET(_request: Request, { params }: RouteContext) {
     } catch {
       return NextResponse.json({ success: false, error: 'Invalid filename' }, { status: 400 });
     }
-    console.log('📸 Checking file path:', {
-      filePath,
-      exists: await fs.access(filePath).then(() => true).catch(() => false)
-    });
 
     const fileStat = await fs.stat(filePath).catch(() => null);
     if (!fileStat || !fileStat.isFile()) {
-      console.log('📸 Asset serving failed: File not found:', {
-        filePath,
-        fileStat,
-        projectAssetsDir: assetsRoot
-      });
-
-      // Check if assets directory exists
-      const assetsDirExists = await fs.access(assetsRoot).then(() => true).catch(() => false);
-      console.log('📸 Assets directory exists:', assetsDirExists);
-
-      // List files in assets directory if it exists
-      if (assetsDirExists) {
-        try {
-          const files = await fs.readdir(assetsRoot);
-          console.log('📸 Files in assets directory:', files);
-        } catch (error) {
-          console.log('📸 Failed to list assets directory files:', error);
-        }
-      }
-
       return NextResponse.json({ success: false, error: 'Image not found' }, { status: 404 });
     }
 
@@ -85,13 +53,6 @@ export async function GET(_request: Request, { params }: RouteContext) {
     const response = new NextResponse(fileBuffer as unknown as BodyInit);
     response.headers.set('Content-Type', inferContentType(filename));
     response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-
-    console.log('📸 Asset serving success:', {
-      filename,
-      size: fileBuffer.length,
-      contentType: inferContentType(filename),
-      project_id
-    });
 
     return response;
   } catch (error) {

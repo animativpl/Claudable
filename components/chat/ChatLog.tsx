@@ -711,10 +711,6 @@ const integrateMessages = (
             (!preservedAttachments || preservedAttachments.length === 0)
           ) {
             preservedAttachments = [...existingAttachments];
-            console.log('🖼️ Preserving optimistic attachments for request:', {
-              requestId: message.requestId,
-              attachments: preservedAttachments,
-            });
           }
           map.delete(key);
         }
@@ -1298,18 +1294,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       return true;
     });
 
-    filteredMessages.forEach((msg) => {
-      if (
-        Array.isArray((msg.metadata as any)?.attachments) &&
-        (msg.metadata as any).attachments.length > 0
-      ) {
-        console.log('🖼️ Realtime message includes attachments:', {
-          messageId: msg.id,
-          attachments: (msg.metadata as any).attachments,
-        });
-      }
-    });
-
     let processedInUpdate = false;
     if (filteredMessages.length > 0) {
       setMessages((prev) => {
@@ -1753,35 +1737,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
             ? expandMessagesList(chatMessages.map(toChatMessage), ensureStableMessageId)
             : [];
 
-          console.log('[ChatLog] Loaded messages from API:', {
-            totalMessages: normalized.length,
-            messagesWithMetadata: normalized.filter(msg => !!msg.metadata).length,
-            messagesWithAttachments: normalized.filter(msg =>
-              msg.metadata &&
-              typeof msg.metadata === 'object' &&
-              (msg.metadata as any).attachments
-            ).length,
-            sampleMessageMetadata: normalized[0]?.metadata
-          });
-
           // Update pagination state
           if (payload.pagination) {
-            console.log(`[ChatLog] Loaded ${payload.pagination.count}/${payload.totalCount} messages`);
             setHasMoreMessages(payload.pagination.hasMore || false);
             setTotalMessageCount(payload.totalCount || 0);
           } else {
             setHasMoreMessages(false);
             setTotalMessageCount(normalized.length);
           }
-
-          normalized.forEach((message) => {
-            if (Array.isArray((message.metadata as any)?.attachments) && (message.metadata as any).attachments.length > 0) {
-              console.log('🖼️ DB loaded message with attachments:', {
-                messageId: message.id,
-                attachments: (message.metadata as any).attachments,
-              });
-            }
-          });
 
           setMessages((prev) => integrateMessages(prev, normalized));
         }
@@ -2271,7 +2234,6 @@ const ToolResultMessage = ({
 
     // **Important**: Always display messages that include attachments
     if (metadata && metadata.attachments && Array.isArray(metadata.attachments) && metadata.attachments.length > 0) {
-      console.log('🖼️ Message has attachments, displaying:', { messageId: message.id, attachments: metadata.attachments });
       return true;
     }
 
@@ -2324,7 +2286,6 @@ const ToolResultMessage = ({
 
     // **Important**: Also display messages that match the legacy image-path pattern
     if (contentText && contentText.includes('Image #') && contentText.includes('path:')) {
-      console.log('🖼️ Message contains image paths, displaying:', { messageId: message.id, content: contentText });
       return true;
     }
 
@@ -2524,12 +2485,10 @@ const ToolResultMessage = ({
                                 const attachments = Array.isArray((messageMetadata as Record<string, any>)?.attachments)
                                   ? ((messageMetadata as Record<string, any>).attachments as any[])
                                   : [];
-                                console.log('🖼️ Message attachments:', attachments);
                                 if (attachments.length > 0) {
                                   return (
                                     <div className="mt-2 flex flex-wrap gap-2">
                                       {attachments.map((attachment: any, idx: number) => {
-                                        console.log(`🖼️ Processing attachment ${idx}:`, attachment);
                                         const candidateRawUrls: string[] = [];
                                         const pushCandidate = (value: unknown) => {
                                           if (typeof value === 'string') {
@@ -2547,7 +2506,6 @@ const ToolResultMessage = ({
 
                                         const uniqueCandidates = Array.from(new Set(candidateRawUrls));
                                         if (uniqueCandidates.length === 0) {
-                                          console.log(`🖼️ No URL found for attachment ${idx}`);
                                           return null;
                                         }
                                         const resolveUrl = (value: string) => {
@@ -2565,14 +2523,9 @@ const ToolResultMessage = ({
                                           resolvedCandidates.find(url => !failedImageUrls.has(url)) ??
                                           resolvedCandidates[0];
                                         if (!imageUrl) {
-                                          console.log(`🖼️ Failed to resolve any URL for attachment ${idx}`);
                                           return null;
                                         }
                                         const allCandidatesFailed = resolvedCandidates.every(url => failedImageUrls.has(url));
-                                        console.log(`🖼️ Resolved image URL for attachment ${idx}:`, imageUrl, {
-                                          candidates: resolvedCandidates,
-                                          allCandidatesFailed,
-                                        });
 
                                         const handleImageError = () => {
                                           console.error('❌ Image failed to load:', imageUrl);

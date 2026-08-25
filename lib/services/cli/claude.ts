@@ -575,16 +575,10 @@ export async function executeClaude(
   sessionId?: string,
   requestId?: string
 ): Promise<void> {
-  console.log(`\n========================================`);
-  console.log(`[ClaudeService] 🚀 Starting Claude Agent SDK`);
-  console.log(`[ClaudeService] Project: ${projectId}`);
   const resolvedModel = resolveModelId(model);
   const modelLabel = getClaudeModelDisplayName(resolvedModel);
   const aliasNote = resolvedModel !== model ? ` (alias for ${model})` : '';
-  console.log(`[ClaudeService] Model: ${modelLabel} [${resolvedModel}]${aliasNote}`);
-  console.log(`[ClaudeService] Session ID: ${sessionId || 'new session'}`);
-  console.log(`[ClaudeService] Instruction: ${instruction.substring(0, 100)}...`);
-  console.log(`========================================\n`);
+  console.log(`[ClaudeService] Starting agent for ${projectId} on ${modelLabel} [${resolvedModel}]${aliasNote}`);
 
   let hasMarkedTerminalStatus = false;
   let emittedCompletedStatus = false;

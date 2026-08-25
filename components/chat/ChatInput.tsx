@@ -125,24 +125,11 @@ export default function ChatInput({
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('📸 File input change event triggered:', {
-      hasFiles: !!e.target.files,
-      fileCount: e.target.files?.length || 0,
-      files: Array.from(e.target.files || []).map(f => ({
-        name: f.name,
-        size: f.size,
-        type: f.type,
-        lastModified: f.lastModified
-      }))
-    });
-
     const files = e.target.files;
     if (!files) {
-      console.log('📸 No files selected');
       return;
     }
 
-    console.log('📸 Calling handleFiles with files');
     await handleFiles(files);
   };
 
@@ -164,11 +151,6 @@ export default function ChatInput({
       return;
     }
 
-    console.log('📸 Starting image upload process:', {
-      projectId,
-      fileCount: files.length
-    });
-
     setIsUploading(true);
 
     try {
@@ -180,8 +162,6 @@ export default function ChatInput({
           console.warn(`⚠️ Skipping non-image file: ${file.name}, type: ${file.type}`);
           continue;
         }
-
-        console.log(`📸 Uploading image ${i + 1}/${files.length}:`, file.name);
 
         const formData = new FormData();
         formData.append('file', file);
@@ -210,21 +190,7 @@ export default function ChatInput({
           publicUrl: typeof result.public_url === 'string' ? result.public_url : undefined
         };
 
-        console.log('📸 Created UploadedImage object:', newImage);
-        setUploadedImages(prev => {
-          const updatedImages = [...prev, newImage];
-          console.log('📸 Updated uploadedImages state:', {
-            totalCount: updatedImages.length,
-            images: updatedImages.map(img => ({
-              id: img.id,
-              filename: img.filename,
-              hasPath: !!img.path,
-              hasAssetUrl: !!img.assetUrl,
-              hasPublicUrl: !!img.publicUrl
-            }))
-          });
-          return updatedImages;
-        });
+        setUploadedImages(prev => [...prev, newImage]);
       }
     } catch (error) {
       console.error('❌ Image upload failed:', error);
@@ -292,11 +258,8 @@ export default function ChatInput({
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('📸 Drag enter event triggered:', { projectId });
     if (projectId) {
       setIsDragOver(true);
-    } else {
-      console.log('📸 Drag enter ignored: missing projectId');
     }
   };
 
@@ -323,28 +286,13 @@ export default function ChatInput({
     e.stopPropagation();
     setIsDragOver(false);
 
-    console.log('📸 Drop event triggered:', {
-      hasFiles: !!e.dataTransfer.files,
-      fileCount: e.dataTransfer.files?.length || 0,
-      projectId,
-      files: Array.from(e.dataTransfer.files || []).map(f => ({
-        name: f.name,
-        size: f.size,
-        type: f.type
-      }))
-    });
-
     if (!projectId) {
-      console.log('📸 Drop event blocked: missing projectId');
       return;
     }
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-      console.log('📸 Calling handleFiles with dropped files');
       handleFiles(files);
-    } else {
-      console.log('📸 No files in drop event');
     }
   };
 
@@ -382,17 +330,7 @@ export default function ChatInput({
                 className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Upload images"
                 onClick={() => {
-                  console.log('📸 Upload button clicked:', {
-                    projectId,
-                    isUploading,
-                    disabled
-                  });
-                  if (fileInputRef.current) {
-                    console.log('📸 Triggering file input click');
-                    fileInputRef.current.click();
-                  } else {
-                    console.error('📸 fileInputRef is null');
-                  }
+                  fileInputRef.current?.click();
                 }}
               >
                 <ImageIcon className="h-4 w-4" />

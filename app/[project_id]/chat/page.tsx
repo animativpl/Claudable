@@ -1371,21 +1371,10 @@ const persistProjectPreferences = useCallback(
         };
       };
 
-      console.log('🖼️ Processing images in runAct:', {
-          imageCount: imagesToUse.length,
-          requestId
-        });
       const processedImages: { name: string; path: string; url?: string; public_url?: string; publicUrl?: string }[] = [];
 
       for (let i = 0; i < imagesToUse.length; i += 1) {
         const image = imagesToUse[i];
-        console.log(`🖼️ Processing image ${i}:`, {
-          id: image.id,
-          filename: image.filename,
-          hasPath: !!image.path,
-          hasPublicUrl: !!image.publicUrl,
-          hasAssetUrl: !!image.assetUrl
-        });
         if (image?.path) {
           const name = image.filename || image.name || `Image ${i + 1}`;
           const candidateUrl = typeof image.assetUrl === 'string' ? image.assetUrl : undefined;
@@ -1397,7 +1386,6 @@ const persistProjectPreferences = useCallback(
             public_url: candidatePublicUrl,
             publicUrl: candidatePublicUrl,
           };
-          console.log(`🖼️ Created processed image ${i}:`, processedImage);
           processedImages.push(processedImage);
           continue;
         }
@@ -1425,18 +1413,6 @@ const persistProjectPreferences = useCallback(
         requestId,
         selectedModel,
       };
-
-      console.log('📸 Sending request to act API:', {
-        messageLength: finalMessage.length,
-        imageCount: processedImages.length,
-        requestId,
-        images: processedImages.map(img => ({
-          name: img.name,
-          hasPath: !!img.path,
-          hasUrl: !!img.url,
-          hasPublicUrl: !!img.publicUrl
-        }))
-      });
 
       // Optimistically add user message to UI BEFORE API call for instant feedback
       tempUserMessageId = requestId + '-user-temp';
@@ -1531,14 +1507,6 @@ const persistProjectPreferences = useCallback(
       }
 
       const result = await r.json();
-
-      console.log('📸 Act API response received:', {
-        success: result.success,
-        userMessageId: result.userMessageId,
-        conversationId: result.conversationId,
-        requestId: result.requestId,
-        hasAttachments: processedImages.length > 0
-      });
 
       const returnedConversationId =
         typeof result?.conversationId === 'string'

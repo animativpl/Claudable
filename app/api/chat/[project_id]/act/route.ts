@@ -288,14 +288,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           }
         : undefined;
 
-    console.log('📸 Creating message with attachments:', {
-      projectId: project_id,
-      hasAttachments: processedImages.length > 0,
-      attachmentsCount: processedImages.length,
-      metadataKeys: metadata ? Object.keys(metadata) : [],
-      metadataString: JSON.stringify(metadata, null, 2)
-    });
-
     const userMessage = await createMessage({
       projectId: project_id,
       role: 'user',
@@ -305,15 +297,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       cliSource: 'claude',
       metadata,
       requestId: requestId,
-    });
-
-    console.log('📸 Message created successfully:', {
-      messageId: userMessage.id,
-      hasMetadata: Boolean(metadata),
-      metadataType: metadata ? typeof metadata : 'undefined',
-      metadataKeys: metadata ? Object.keys(metadata) : [],
-      metadataString: metadata ? JSON.stringify(metadata, null, 2) : undefined,
-      metadataJsonLength: userMessage.metadataJson ? userMessage.metadataJson.length : 0,
     });
 
     if (requestId) {
