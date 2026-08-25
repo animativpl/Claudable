@@ -4,6 +4,12 @@ export interface TemplateMeta {
   id: TemplateId;
   label: string;
   description: string;
+  /**
+   * Instrukcja dla agenta, wstrzykiwana do initial prompta przy pierwszym
+   * uruchomieniu projektu. To nie jest tekst dla użytkownika — `description`
+   * jest widoczny w UI, to pole nie.
+   */
+  initialPromptPreamble: string;
 }
 
 /** Bez importów `fs` — ten plik musi być importowalny z komponentu klienckiego. */
@@ -12,11 +18,15 @@ export const TEMPLATE_META: Record<TemplateId, TemplateMeta> = {
     id: 'nextjs',
     label: 'Next.js',
     description: 'React with the App Router, server components and API routes',
+    initialPromptPreamble:
+      'Create a new Next.js 15 application using the App Router, TypeScript, and Tailwind CSS, with the following requirements:',
   },
   astro: {
     id: 'astro',
     label: 'Astro',
     description: 'Content-first static site generator with island hydration',
+    initialPromptPreamble:
+      'Create a new Astro application using TypeScript, with the following requirements:',
   },
 };
 

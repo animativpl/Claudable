@@ -10,7 +10,8 @@ import {
   updateProjectActivity,
 } from '@/lib/services/project';
 import { createMessage } from '@/lib/services/message';
-import { initializeNextJsProject, applyChanges } from '@/lib/services/cli/claude';
+import { initializeProject, applyChanges } from '@/lib/services/cli/claude';
+import { normalizeTemplateType } from '@/lib/templates/meta';
 import { getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
 import { streamManager } from '@/lib/services/stream';
 import type { ChatActRequest } from '@/types/backend';
@@ -364,9 +365,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     if (isInitialPrompt) {
-      initializeNextJsProject(
+      initializeProject(
         project_id,
         projectPath,
+        normalizeTemplateType(project.templateType),
         finalInstruction,
         selectedModel,
         requestId,

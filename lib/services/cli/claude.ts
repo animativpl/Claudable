@@ -23,6 +23,8 @@ import { loadAgentDefinitions } from './agents-loader';
 import { resolveClaudeConfigDir } from './claude-config-dir';
 import { summarizeInitPayload } from './init-payload';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
+import { buildInitialPrompt } from './initial-prompt';
+import type { TemplateId } from '@/lib/templates/meta';
 import path from 'path';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
@@ -1122,31 +1124,26 @@ export async function executeClaude(
 }
 
 /**
- * Initialize Next.js project with Claude Code
+ * Initialize a new project with Claude Code
  *
  * @param projectId - Project ID
  * @param projectPath - Project directory path
+ * @param templateId - Template the project was scaffolded from
  * @param initialPrompt - Initial prompt
  * @param model - Claude model to use (default: claude-sonnet-5)
  * @param requestId - (Optional) User request tracking ID
  */
-export async function initializeNextJsProject(
+export async function initializeProject(
   projectId: string,
   projectPath: string,
+  templateId: TemplateId,
   initialPrompt: string,
   model: string = CLAUDE_DEFAULT_MODEL,
   requestId?: string
 ): Promise<void> {
-  console.log(`[ClaudeService] Initializing Next.js project: ${projectId}`);
+  console.log(`[ClaudeService] Initializing ${templateId} project: ${projectId}`);
 
-  // Next.js project creation command
-  const fullPrompt = `
-Create a new Next.js 15 application with the following requirements:
-${initialPrompt}
-
-Use App Router, TypeScript, and Tailwind CSS.
-Set up the basic project structure and implement the requested features.
-`.trim();
+  const fullPrompt = buildInitialPrompt(templateId, initialPrompt);
 
   await executeClaude(projectId, projectPath, fullPrompt, model, undefined, requestId);
 }

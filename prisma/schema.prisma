@@ -29,7 +29,7 @@ model Project {
 
   // Initial setup
   initialPrompt String? @map("initial_prompt")
-  templateType  String? @map("template_type") // nextjs, react, vue, etc.
+  templateType  String? @map("template_type") // nextjs, astro
 
   // AI Session Management
   activeClaudeSessionId String? @map("active_claude_session_id")
