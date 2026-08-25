@@ -1095,31 +1095,43 @@ backs up the database first, since db push rebuilds SQLite tables."
 ### Task 8: Zatrzymaj kaskadę re-fetchowania czatu (znalezisko B, decyzja 13)
 
 **Files:**
-- Modify: `components/chat/ChatLog.tsx` (~1004-1016, ~1993-2020, ~2055-2165)
-- Modify: `app/[project_id]/chat/page.tsx` (~2271-2300)
+- Modify: `components/chat/ChatLog.tsx`
+- Modify: `app/[project_id]/chat/page.tsx`
+
+Numery linii w tym zadaniu są orientacyjne — siedem zadań zmieniło te pliki od czasu napisania planu. **Lokalizuj po treści, nie po numerze.**
 
 **Interfaces:**
 - Consumes: brak `isConnected` po Task 3.
-- Produces: `ChatLog` przestaje przeładowywać historię przy re-renderze rodzica. Żadnych zmian w propsach — kontrakt komponentu zostaje.
+- Produces: `ChatLog` przestaje przeładowywać historię przy re-renderze rodzica. Z kontraktu komponentu **wypada** martwy prop `onSseFallbackActive` (krok 1) — to jedyna zmiana w propsach.
 
-Flicker miał **dwie** przyczyny. Pierwszą — trzepanie transportu WS, które przy każdym cyklu wołało `recoverMissingMessages()` i otwierało nowy `EventSource` — usunął Task 3. To zadanie zamyka drugą, niezależną od transportu: rodzic przekazuje `onSessionStatusChange` i `onAddUserMessage` jako inline arrow, więc przy każdym jego renderze `checkActiveSession` dostaje nową tożsamość, efekt montujący z deps `[projectId, checkActiveSession, loadChatHistory]` re-runuje się i woła `loadChatHistory({ showLoading: true })` — pełny refetch 200 wiadomości plus `setIsLoading(true)`.
+Flicker miał **dwie** przyczyny. Pierwszą — trzepanie transportu WS, które przy każdym cyklu wołało `recoverMissingMessages()` i otwierało nowy `EventSource` — usunął Task 3. To zadanie zamyka drugą, niezależną od transportu. Ma trzy warstwy: martwy prop, który jest niestabilną zależnością naprawianego efektu; niestabilne handlery od rodzica; i deps, które same się unieważniają. Rdzeń: rodzic przekazuje `onSessionStatusChange` i `onAddUserMessage` jako inline arrow, więc przy każdym jego renderze `checkActiveSession` dostaje nową tożsamość, efekt montujący z deps `[projectId, checkActiveSession, loadChatHistory]` re-runuje się i woła `loadChatHistory({ showLoading: true })` — pełny refetch 200 wiadomości plus `setIsLoading(true)`.
 
 Punkt odniesienia z pomiaru: **przed jakąkolwiek zmianą jedno wejście na stronę projektu dawało ponad 15 pobrań** `messages?limit=200&offset=0`. Task 3 miał to obniżyć; to zadanie ma dowieźć próg z kroku 8.
 
-- [ ] **Step 1: Ustabilizuj handlery od rodzica przez ref**
+- [ ] **Step 1: Usuń martwy prop `onSseFallbackActive`**
+
+Zrób to **przed** stabilizacją pozostałych handlerów — zmniejsza problem, zamiast go obchodzić.
+
+Stan zbadany: prop jest zadeklarowany w `ChatLogProps`, wołany dokładnie raz z `false` przy nawiązaniu SSE, i siedzi w tablicy deps efektu SSE (`[projectId, handleRealtimeEnvelope, onSseFallbackActive]`). Po stronie rodzica stan `isSseFallbackActive` jest ustawiany i **nigdy nieczytany**, a przekazywany handler to inline arrow, czyli nowa tożsamość przy każdym renderze rodzica. Po usunięciu WebSocketów w Task 3 tryb fallback nie istnieje — SSE jest jedynym transportem, więc prop nie ma czego komunikować.
+
+Usuń: deklarację w `ChatLogProps`, destrukturyzację, jedyne wywołanie, wpis w deps efektu SSE, a po stronie rodzica stan `isSseFallbackActive` razem z przekazywanym inline arrow.
+
+Po tym kroku efekt SSE ma deps `[projectId, handleRealtimeEnvelope]` — została jedna niestabilna zależność, którą domyka krok następny.
+
+- [ ] **Step 2: Ustabilizuj handlery od rodzica przez ref**
 
 W `components/chat/ChatLog.tsx`, zaraz po deklaracjach propsów w ciele komponentu, dodaj:
 
 ```ts
-  const parentHandlersRef = useRef({ onSessionStatusChange, onProjectStatusUpdate, onSseFallbackActive, onAddUserMessage });
+  const parentHandlersRef = useRef({ onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage });
   useEffect(() => {
-    parentHandlersRef.current = { onSessionStatusChange, onProjectStatusUpdate, onSseFallbackActive, onAddUserMessage };
-  }, [onSessionStatusChange, onProjectStatusUpdate, onSseFallbackActive, onAddUserMessage]);
+    parentHandlersRef.current = { onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage };
+  }, [onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage]);
 ```
 
-Następnie w `checkActiveSession`, `startSessionPolling` i wszędzie tam, gdzie te propsy są wołane, zamień `onSessionStatusChange?.(x)` na `parentHandlersRef.current.onSessionStatusChange?.(x)` (analogicznie dla pozostałych trzech) i **usuń je z tablic deps** tych `useCallback`. Po tej zmianie `checkActiveSession` ma deps `[projectId, startSessionPolling]`, a `startSessionPolling` ma `[projectId]`.
+Następnie w `checkActiveSession`, `startSessionPolling` i wszędzie tam, gdzie te propsy są wołane, zamień `onSessionStatusChange?.(x)` na `parentHandlersRef.current.onSessionStatusChange?.(x)` (analogicznie dla pozostałych dwóch) i **usuń je z tablic deps** tych `useCallback`. Po tej zmianie `checkActiveSession` ma deps `[projectId, startSessionPolling]`, a `startSessionPolling` ma `[projectId]`.
 
-- [ ] **Step 2: Zawęź deps efektu montującego**
+- [ ] **Step 3: Zawęź deps efektu montującego**
 
 Znajdź efekt kończący się na `}, [projectId, checkActiveSession, loadChatHistory]);` (~2155). Zmień tablicę deps na `[projectId]` i dodaj nad nim komentarz:
 
@@ -1130,7 +1142,7 @@ Znajdź efekt kończący się na `}, [projectId, checkActiveSession, loadChatHis
   // eslint-disable-next-line react-hooks/exhaustive-deps
 ```
 
-- [ ] **Step 3: Rozdziel `pollIntervalRef` na dwa niezależne refy**
+- [ ] **Step 4: Rozdziel `pollIntervalRef` na dwa niezależne refy**
 
 W deklaracjach (~1012) zastąp:
 
@@ -1147,7 +1159,7 @@ dwoma:
 
 W `startSessionPolling` (~1993) i w cleanupie efektu montującego używaj `sessionPollRef`. W efekcie pollingu historii (~2107) i jego cleanupie używaj `historyPollRef`. Dziś oba konsumenty czyszczą sobie interwały wzajemnie.
 
-- [ ] **Step 4: Wyjmij `messages` z deps efektu pollingu**
+- [ ] **Step 5: Wyjmij `messages` z deps efektu pollingu**
 
 W efekcie pollingu historii (~2055) zastąp:
 
@@ -1170,7 +1182,7 @@ odczytem z refu. Dodaj obok deklaracji refów:
 
 i w efekcie pollingu użyj `hasStreamingMessageRef.current`. Usuń `messages` z tablicy deps tego efektu — dziś każda przychodząca wiadomość niszczy i odtwarza interwał.
 
-- [ ] **Step 5: Przestań gubić flagę „już wczytane" przy końcu sesji**
+- [ ] **Step 6: Przestań gubić flagę „już wczytane" przy końcu sesji**
 
 W `startSessionPolling`, w gałęzi `if (sessionStatus.status !== 'active')`, zastąp `setHasLoadedOnce(false);` (co powoduje pokazanie skeletonu) odświeżeniem bez migotania:
 
@@ -1178,7 +1190,7 @@ W `startSessionPolling`, w gałęzi `if (sessionStatus.status !== 'active')`, za
               setNeedsHistoryRefresh(true);
 ```
 
-- [ ] **Step 6: Ustabilizuj propsy po stronie rodzica**
+- [ ] **Step 7: Ustabilizuj propsy po stronie rodzica**
 
 W `app/[project_id]/chat/page.tsx` wynieś oba inline handlery przekazywane do `<ChatLog>` do `useCallback` zadeklarowanych w ciele komponentu, powyżej JSX:
 
@@ -1212,12 +1224,26 @@ Logikę auto-startu preview, która była w inline handlerze (`hasInitialPrompt 
 
 Typ `MessageHandlers` weź z istniejącej deklaracji propsa `onAddUserMessage` w `ChatLogProps` — jeśli jest tam typ inline, wyeksportuj go z `ChatLog.tsx` i zaimportuj tutaj, zamiast powtarzać kształt.
 
-- [ ] **Step 7: Sprawdź typy, testy i build**
+- [ ] **Step 8: Usuń maszynerię `logs`, osieroconą przez Task 3**
+
+Task 3 usunął `handleWebSocketData` — jedynego writera dopisującego do `logs`. Został wyłącznie `setLogs([])`, więc tablica nie może już nigdy być niepusta, a wszystko, co ją renderuje, jest nieosiągalne. To ponad sto linii, których nie da się wykonać.
+
+Usuń: `interface LogEntry`, stany `logs` i `selectedLog`, wywołanie `setLogs([])`, `renderLogEntry`, `openDetailModal`, `renderDetailModal` oraz blok JSX renderujący listę logów i modal szczegółów. Sprawdź, czy nie osierocieje przy tym `formatTime` albo inny pomocnik — jeśli tak i nie ma innego konsumenta, usuń i jego.
+
+**Nie usuwaj** stanu `messages` ani niczego, co renderuje wiadomości czatu — to osobna, żywa ścieżka.
+
+- [ ] **Step 9: Domknij resztkowy parametr `transport`**
+
+`markMessageAsProcessed` przyjmuje `transport?: 'sse' | 'optimistic' | 'unknown'`, a jedyny wołający zawsze podaje literał `'sse'`. Nieosiągalne są oba pozostałe warianty unii i fallback `transport || 'unknown'`. Task 3 usunął dedup między transportami; ten parametr został po nim.
+
+Zastąp parametr stałą w ciele funkcji albo zawęź go do `transport: 'sse'` — wybierz to, co czytelniejsze w tym miejscu, i zapisz w raporcie, co wybrałeś i dlaczego. Log diagnostyczny ma dalej wypisywać źródło.
+
+- [ ] **Step 10: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
 Expected: zero błędów, testy zielone, build przechodzi
 
-- [ ] **Step 8: Dowód z uruchomienia — brak pętli refetchowania**
+- [ ] **Step 11: Dowód z uruchomienia — brak pętli refetchowania**
 
 Mierz na buildzie produkcyjnym, nie w dev: `next.config.js:3` ma `reactStrictMode: true`, więc w dev każdy efekt montujący biegnie dwa razy i licznik żądań jest z definicji podwojony.
 
@@ -1239,7 +1265,7 @@ Expected — progi zachowaniowe, nie równości (punkt startowy: 15+ pobrań prz
 
 Zapisz w raporcie liczbę żądań w każdej z tych trzech faz. Jeśli w trakcie runu leci choć jedno, kaskada nie jest domknięta.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add components/chat/ChatLog.tsx "app/[project_id]/chat/page.tsx"
