@@ -1309,6 +1309,12 @@ the polling interval."
   `stopAll()` jest wołane z `instrumentation.ts`, który powstaje w tym zadaniu
   i który Task 11 rozszerza.
 
+**Gdzie rodzą się osierocone preview — punkt wejścia od reviewera Task 8.** `app/[project_id]/chat/page.tsx:1698-1713` zawiera preegzystujący efekt, który woła `start()` na **każdym** renderze spełniającym `!hasActiveRequests && !previewUrl && !isStartingPreview` — bez żadnej gardy `hasInitialPrompt`, więc także na zwykłym wejściu na stronę. To on, nie naprawiony w Task 8 efekt auto-startu, faktycznie napędza startowanie dev-serverów.
+
+Twoje zadanie **nie polega** na przepisaniu tego efektu — masz naprawić cykl życia procesów, nie politykę startowania. Ale przeczytaj go, zanim zaczniesz mierzyć: liczba osieroconych dev-serverów, którą zobaczysz, zależy od tego, ile razy ten efekt zdążył wystrzelić, a nie od tego, ile razy użytkownik kliknął. Zaobserwowane empirycznie w tym runie: sześć procesów na portach 3101-3106 po kilku wejściach na stronę, każdy z osobnym `next-server` jako wnukiem.
+
+
+
 - [ ] **Step 1: Napisz failujący test**
 
 Utwórz `tests/services/process-tree.test.ts`:
@@ -1814,7 +1820,17 @@ Sprawdź, czy `prisma` jest już zaimportowane w tym pliku; jeśli nie, dodaj `i
 Run: `npx vitest run tests/services/reconcile-requests.test.ts`
 Expected: PASS — 3 testy
 
-- [ ] **Step 5: Odpal rekoncyliację raz na proces**
+- [ ] **Step 5: Przestań wytwarzać fałszywe „brak aktywnych runów" po stronie klienta**
+
+`hooks/useUserRequests.ts` ustawia `hasActiveRequests = false` **bez potwierdzenia z serwera** na dwóch ścieżkach awaryjnych: przy odpowiedzi 404 (~71-79) i w bloku `catch` (~98-107). Jeden nieudany albo przerwany poll w trakcie pracy agenta produkuje więc fałszywe zbocze opadające.
+
+Po Task 8 ma to konkretny skutek: efekt auto-startu preview bramkuje właśnie na zboczu opadającym `hasActiveRequests`, więc zerwany poll zatrzaskuje `agentWorkComplete`, utrwala `taskComplete='true'` w localStorage i woła `start()` **w środku pracy agenta**. To ta sama klasa błędu, którą Task 8 usunął przy `isRunning` — sygnał, który wygląda jak stan serwera, a jest lokalnym domysłem.
+
+Zmień oba miejsca tak, żeby **awaria pollu nie zmieniała stanu**: zostaw poprzednią wartość i zaloguj problem. Brak odpowiedzi nie jest informacją o tym, że runów nie ma. Wyjątek: 404 na trasie, która przestała istnieć, może zostać obsłużone jako „brak danych", ale wtedy zrób to jawnie i opisz w komentarzu, czym się różni od błędu sieciowego.
+
+Uwaga na kolejność: to zadanie dodaje też rekoncyliację przy starcie (krok następny), która usuwa drugą połowę tego problemu — wiersze zawieszone w `processing` po restarcie serwera. Obie części są potrzebne: rekoncyliacja naprawia serwer, ta zmiana naprawia klienta.
+
+- [ ] **Step 6: Odpal rekoncyliację raz na proces**
 
 W `instrumentation.ts` (powstał w Task 9) dodaj rekoncyliację na początku `register()`, przed rejestracją handlerów sygnałów:
 
@@ -1825,7 +1841,7 @@ W `instrumentation.ts` (powstał w Task 9) dodaj rekoncyliację na początku `re
 
 To jest właściwe miejsce: wykonuje się raz na proces serwera, przed obsługą pierwszego żądania — a każdy run niedomknięty w chwili startu jest z definicji martwy, bo nie ma go kto kontynuować.
 
-- [ ] **Step 6: Dowód z uruchomienia**
+- [ ] **Step 7: Dowód z uruchomienia**
 
 Run:
 ```bash
@@ -1838,12 +1854,12 @@ node -e "const{PrismaClient}=require('@prisma/client');new PrismaClient().userRe
 ```
 Expected: pierwszy odczyt ≥ 1, drugi `0`, a UI nie pokazuje trwającego runu. Wklej oba odczyty do raportu.
 
-- [ ] **Step 7: Sprawdź typy, testy i build**
+- [ ] **Step 8: Sprawdź typy, testy i build**
 
 Run: `npm run type-check && npm test && npm run build`
 Expected: zero błędów, testy zielone, build przechodzi
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add lib/services/user-requests.ts tests/services/reconcile-requests.test.ts instrumentation.ts
