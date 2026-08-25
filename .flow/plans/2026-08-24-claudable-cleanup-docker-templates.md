@@ -36,6 +36,12 @@ Powód jest empiryczny i kosztował już cztery przeoczenia w tym runie, wszystk
 
 **Skoro grep widzi całe drzewo, `Expected` musi wymieniać znane trafienia z ich właścicielem, a nie udawać, że ich nie ma.** Zakres wykluczający wciąga do wyniku pliki należące do innych zadań tej samej gałęzi — `README.md` do Task 22, `prisma/schema.prisma` do Task 7 i 12. `Expected: brak wyników` czyni wtedy bramkę nieprzechodnią: da się ją przejść tylko przez wciągnięcie cudzej roboty albo przez nieuruchomienie grepu. Pisz więc `Expected: wyłącznie <lista> — każde należy do Task N`, i traktuj każde inne trafienie jako niedokończone zadanie.
 
+**Otwarte znalezisko bezpieczeństwa, zastane, świadomie nienaprawione w fazach 1-4 — do rozstrzygnięcia przez użytkownika przed zamknięciem gałęzi.** Procesy projektu użytkownika (dev-server oraz `npm install`) dziedziczą środowisko Claudable po odcięciu zmiennych `CLAUDE_*` — ale **nie** po odcięciu sekretów samej platformy. Do dev-servera i do skryptów `postinstall` **dowolnego** pakietu npm, który agent zainstaluje, trafiają dziś `ENCRYPTION_KEY`, `DATABASE_URL` i tokeny usług.
+
+Task 17 odciął `CLAUDE_*` z uzasadnieniem „kod użytkownika nie ma prawa widzieć poświadczenia agenta". To samo zdanie stosuje się dosłownie do powyższych i jest szersze niż tamto zadanie, dlatego nie zostało tam naprawione po cichu.
+
+Naprawa oznacza przejście z odcinania (denylist) na przepuszczanie (allowlist) dla procesów użytkownika — czyli decyzję, co aplikacja użytkownika legalnie potrzebuje ze środowiska. To zmiana z realnym ryzykiem zepsucia cudzych aplikacji, więc **nie jest robotą do cichego dołożenia**; ma trafić do finalnego przeglądu gałęzi jako jawna pozycja i do raportu końcowego.
+
 **Od Task 13 `lib/utils/project-path.ts` jest plikiem bezpieczeństwa.** Guard `allowedBasePath` w adapterze Claude'a został usunięty (izolację ma dawać kontener — decyzja użytkownika), więc walidacja `projectId` w `resolveProjectRoot` jest teraz **całym** kontenerowaniem ścieżek w trybie lokalnym. Recenzent Task 13 sprawdził, że nie ma dziś ścieżki nadużycia wcześniejszej niż ręczna edycja bazy: `repoPath` zapisuje wyłącznie `createProject`, żaden PATCH go nie przyjmuje, a `resolveProjectRoot` odrzuca `/`, `\\`, `.` i `..`. Konsekwencja dla każdego kolejnego zadania: **zmiana w tym pliku jest zmianą bezpieczeństwa**, nawet gdy wygląda na refaktor.
 
 Dwie rzeczy, których żaden grep nie złapie, więc szukaj ich osobno:
@@ -3757,6 +3763,12 @@ which scaffold runs, and has one definition."
 ## Faza 5 — konteneryzacja
 
 ### Task 19: Obraz Dockera (decyzje 5, 6, 7, 29)
+
+**Obraz musi mieć Node ≥ 22.12, inaczej template Astro nie wstanie.** To nie jest preferencja — `astro@7` twardo odmawia startu poniżej tej wersji: `bin/astro.mjs` ma `const engines = '>=22.12.0'` i woła `errorNodeUnsupported()`. Ustalone przez recenzenta Task 17 z rozpakowanego `astro@7.2.6`, nie z dokumentacji.
+
+`package.json` platformy deklaruje `>=20.0.0` i **to zostaje bez zmian** (Global Constraints). Wymaganie 22.12 dotyczy środowiska uruchomieniowego obrazu, a generowany projekt Astro deklaruje je u siebie (`engines` w jego własnym `package.json`), więc npm powie o tym wprost zamiast pozwolić temu paść w logu dev-servera.
+
+Tryb awarii, jeśli to zignorujesz, jest cichy z perspektywy UI: projekt Astro tworzy się poprawnie, a preview nigdy nie wstaje — błąd widać wyłącznie w logach dev-servera.
 
 **Files:**
 - Create: `Dockerfile`
