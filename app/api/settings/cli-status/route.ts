@@ -1,71 +1,29 @@
 /**
- * CLI Status API Route
- * GET /api/settings/cli-status - Check CLI installation status
+ * Agent Status API Route
+ * GET /api/settings/cli-status - Czy agent ma czym się uwierzytelnić
  */
 
 import { NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import type { CLIStatus } from '@/types/backend';
+import { describeCredentialStatus } from '@/lib/services/cli/credential-status';
+import { CLAUDE_MODEL_DEFINITIONS } from '@/lib/constants/claudeModels';
 
-const execAsync = promisify(exec);
-
-/**
- * Check Claude Code CLI installation
- */
-async function checkClaudeCodeCLI(): Promise<{
-  installed: boolean;
-  version?: string;
-  error?: string;
-}> {
-  try {
-    const { stdout } = await execAsync('claude --version');
-    const version = stdout.trim();
-    return {
-      installed: true,
-      version,
-    };
-  } catch (error) {
-    return {
-      installed: false,
-      error: error instanceof Error ? error.message : 'Failed to check CLI',
-    };
-  }
-}
-
-/**
- * GET /api/settings/cli-status
- * Check CLI installation status
- */
 export async function GET() {
-  try {
-    const status: CLIStatus = {
-      claude: {
-        installed: false,
-        checking: false,
-      },
-    };
+  const credentials = await describeCredentialStatus();
 
-    // Check Claude Code CLI installation
-    const claudeStatus = await checkClaudeCodeCLI();
-    status.claude = {
-      installed: claudeStatus.installed,
-      version: claudeStatus.version,
+  return NextResponse.json({
+    claude: {
+      installed: credentials.hasCredentials,
+      available: credentials.hasCredentials,
+      configured: credentials.hasCredentials,
       checking: false,
-      error: claudeStatus.error,
-    };
-
-    return NextResponse.json(status);
-  } catch (error) {
-    console.error('[API] Failed to check CLI status:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to check CLI status',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
-    );
-  }
+      source: credentials.source,
+      configDir: credentials.configDir,
+      models: CLAUDE_MODEL_DEFINITIONS.map((definition) => definition.id),
+      ...(credentials.hasCredentials
+        ? {}
+        : { error: `No Claude credentials in ${credentials.configDir} and no ANTHROPIC_API_KEY` }),
+    },
+  });
 }
 
 export const runtime = 'nodejs';
