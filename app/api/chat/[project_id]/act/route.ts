@@ -24,6 +24,7 @@ import {
   upsertUserRequest,
   markUserRequestAsProcessing,
 } from '@/lib/services/user-requests';
+import { resolveProjectRoot, resolveSafeProjectPath } from '@/lib/utils/project-path';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -35,33 +36,16 @@ function coerceString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
-
 function resolveAssetsPath(projectId: string): string {
-  return path.join(PROJECTS_DIR_ABSOLUTE, projectId, 'assets');
+  return path.join(resolveProjectRoot(projectId, null), 'assets');
 }
 
-function ensureAbsoluteAssetPath(projectId: string, inputPath: string): string {
-  const normalized = path.normalize(inputPath);
-  if (path.isAbsolute(normalized)) {
-    return normalized;
+function ensureAbsoluteAssetPath(projectId: string, inputPath: string): string | null {
+  try {
+    return resolveSafeProjectPath(resolveProjectRoot(projectId, null), inputPath);
+  } catch {
+    return null;
   }
-  const resolvedFromCwd = path.resolve(process.cwd(), normalized);
-  if (resolvedFromCwd.startsWith(PROJECTS_DIR_ABSOLUTE)) {
-    return resolvedFromCwd;
-  }
-  const projectBase = path.join(PROJECTS_DIR_ABSOLUTE, projectId);
-  return path.resolve(projectBase, normalized);
-}
-
-function resolveProjectRoot(projectId: string, repoPath?: string | null): string {
-  if (repoPath) {
-    return path.isAbsolute(repoPath) ? repoPath : path.resolve(process.cwd(), repoPath);
-  }
-  return path.join(PROJECTS_DIR_ABSOLUTE, projectId);
 }
 
 async function mirrorAssetToPublic(
@@ -357,7 +341,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     await updateProjectActivity(project_id);
 
-    const projectPath = project.repoPath || path.join(process.cwd(), 'projects', project_id);
+    const projectPath = resolveProjectRoot(project_id, project.repoPath);
 
     const existingSelected = normalizeModelId(null, project.selectedModel ?? undefined);
     if (existingSelected !== selectedModel) {

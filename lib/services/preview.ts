@@ -10,6 +10,7 @@ import { getProjectById, updateProject, updateProjectStatus } from './project';
 import { scaffoldBasicNextApp } from '@/lib/utils/scaffold';
 import { PREVIEW_CONFIG } from '@/lib/config/constants';
 import { killProcessTree } from './process-tree';
+import { resolveProjectRoot } from '@/lib/utils/project-path';
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -618,9 +619,7 @@ class PreviewManager {
       throw new Error('Project not found');
     }
 
-    const projectPath = project.repoPath
-      ? path.resolve(project.repoPath)
-      : path.join(process.cwd(), 'projects', projectId);
+    const projectPath = resolveProjectRoot(projectId, project.repoPath);
 
     await fs.mkdir(projectPath, { recursive: true });
 
@@ -699,9 +698,7 @@ class PreviewManager {
       throw new Error('Project not found');
     }
 
-    const projectPath = project.repoPath
-      ? path.resolve(project.repoPath)
-      : path.join(process.cwd(), 'projects', projectId);
+    const projectPath = resolveProjectRoot(projectId, project.repoPath);
 
     await fs.mkdir(projectPath, { recursive: true });
 

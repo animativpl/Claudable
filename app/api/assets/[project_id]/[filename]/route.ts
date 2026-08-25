@@ -2,15 +2,11 @@ import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import { getProjectById } from '@/lib/services/project';
+import { resolveProjectRoot, resolveSafeProjectPath } from '@/lib/utils/project-path';
 
 interface RouteContext {
   params: Promise<{ project_id: string; filename: string }>;
 }
-
-const PROJECTS_DIR = process.env.PROJECTS_DIR || './data/projects';
-const PROJECTS_DIR_ABSOLUTE = path.isAbsolute(PROJECTS_DIR)
-  ? PROJECTS_DIR
-  : path.resolve(process.cwd(), PROJECTS_DIR);
 
 function inferContentType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
@@ -39,7 +35,6 @@ export async function GET(_request: Request, { params }: RouteContext) {
     console.log('📸 Asset serving request:', {
       project_id,
       filename,
-      projectsDir: PROJECTS_DIR,
       userAgent: _request.headers.get('user-agent')
     });
 
@@ -49,7 +44,13 @@ export async function GET(_request: Request, { params }: RouteContext) {
       return NextResponse.json({ success: false, error: 'Project not found' }, { status: 404 });
     }
 
-    const filePath = path.join(PROJECTS_DIR_ABSOLUTE, project_id, 'assets', filename);
+    const assetsRoot = path.join(resolveProjectRoot(project_id, project.repoPath), 'assets');
+    let filePath: string;
+    try {
+      filePath = resolveSafeProjectPath(assetsRoot, filename);
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid filename' }, { status: 400 });
+    }
     console.log('📸 Checking file path:', {
       filePath,
       exists: await fs.access(filePath).then(() => true).catch(() => false)
@@ -60,18 +61,17 @@ export async function GET(_request: Request, { params }: RouteContext) {
       console.log('📸 Asset serving failed: File not found:', {
         filePath,
         fileStat,
-        projectAssetsDir: path.join(PROJECTS_DIR, project_id, 'assets')
+        projectAssetsDir: assetsRoot
       });
 
       // Check if assets directory exists
-      const assetsDir = path.join(PROJECTS_DIR_ABSOLUTE, project_id, 'assets');
-      const assetsDirExists = await fs.access(assetsDir).then(() => true).catch(() => false);
+      const assetsDirExists = await fs.access(assetsRoot).then(() => true).catch(() => false);
       console.log('📸 Assets directory exists:', assetsDirExists);
 
       // List files in assets directory if it exists
       if (assetsDirExists) {
         try {
-          const files = await fs.readdir(assetsDir);
+          const files = await fs.readdir(assetsRoot);
           console.log('📸 Files in assets directory:', files);
         } catch (error) {
           console.log('📸 Failed to list assets directory files:', error);
