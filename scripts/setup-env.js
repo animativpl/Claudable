@@ -85,7 +85,39 @@ const LEGACY_ENV_LOCAL_KEYS = [
   'PREVIEW_PORT_END',
 ];
 
-const ENV_KEY_LINE = /^\s*([A-Za-z_][A-Za-z0-9_]*)=/;
+// `export ` jest opcjonalnym prefiksem, który dotenv v16 rozpoznaje i honoruje.
+// Bez niego w tym wzorcu linia użytkownika nie liczyła się ani jako klucz do
+// usunięcia, ani jako „coś tu jeszcze zostaje" — i plik szedł do unlink razem
+// z żywym sekretem.
+const ENV_KEY_LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=/;
+const BLANK_OR_COMMENT_LINE = /^\s*(?:#.*)?$/;
+
+// Czy wartość po `=` domyka się w tej samej linii. Wartość bez cudzysłowu
+// kończy się na końcu linii, więc jest domknięta z definicji; wartość
+// w cudzysłowie może się rozciągać na kilka linii i wtedy parser liniowy
+// widzi w jej środku „klucze", których tam nie ma.
+function valueClosesOnLine(value) {
+  const quote = value[0];
+  if (quote !== '"' && quote !== "'" && quote !== '`') return true;
+  for (let i = 1; i < value.length; i += 1) {
+    if (value[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (value[i] === quote) return true;
+  }
+  return false;
+}
+
+// Przy operacji destrukcyjnej obowiązuje „przy wątpliwości nie ruszaj": pełnego
+// parsera dotenv tu nie budujemy, więc plik, którego parser liniowy nie potrafi
+// pewnie rozliczyć, zostaje nietknięty.
+function isLineParseable(line) {
+  if (BLANK_OR_COMMENT_LINE.test(line)) return true;
+  const match = line.match(ENV_KEY_LINE);
+  if (!match) return false;
+  return valueClosesOnLine(line.slice(match[0].length));
+}
 
 function pruneLegacyEnvLocal() {
   const contents = readFileSafe(envLocalFile);
@@ -99,7 +131,16 @@ function pruneLegacyEnvLocal() {
   if (kept.length === lines.length) return;
 
   const relative = path.relative(rootDir, envLocalFile);
-  if (kept.some((line) => ENV_KEY_LINE.test(line))) {
+  if (!lines.every(isLineParseable)) {
+    console.log(
+      `⚠️  ${relative} has an unterminated quote or a value spanning several lines, so this script cannot edit it safely. Leaving it untouched — drop these keys by hand, .env is the source now: ${LEGACY_ENV_LOCAL_KEYS.join(', ')}.`
+    );
+    return;
+  }
+
+  // Kasujemy tylko wtedy, gdy zostaje czysty biały znak. Komentarz to treść
+  // użytkownika, nie śmieć, więc taki plik przepisujemy.
+  if (kept.join('\n').trim()) {
     writeFileSafe(envLocalFile, kept.join('\n'));
     console.log(`\u{1F9F9} Dropped stale keys from ${relative}; .env is the source now.`);
   } else {

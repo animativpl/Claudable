@@ -6,7 +6,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const dotenv = require('dotenv');
 
 // Zgodne z scripts/run-web.js:18-19 — Prisma i run-web.js czytają
 // DATABASE_URL z .env/.env.local, nie z powłoki. Bez tego resolveDbPath()
@@ -16,8 +15,25 @@ const dotenv = require('dotenv');
 // procesie (`node_modules/dotenv/lib/main.js` — `populate`), więc bez tej
 // flagi .env.local nigdy by nie wygrał z .env dla tego samego klucza —
 // sprzecznie z zamierzonym „drugi nadpisuje pierwszy".
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
-dotenv.config({ path: path.join(__dirname, '..', '.env.local'), override: true });
+//
+// Sam `dotenv` jest opcjonalny: w obrazie runtime `node_modules` pochodzi
+// z tracingu `next build --standalone`, a ten nie widzi `scripts/`, więc
+// modułu tam nie ma i `npm run db:backup` padał na `Cannot find module`.
+// W kontenerze `DATABASE_URL` przychodzi już ze środowiska (`env_file:`
+// w docker-compose.yml), więc nie ma czego wczytywać z plików.
+function loadEnvFiles() {
+  let dotenv;
+  try {
+    dotenv = require('dotenv');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    return;
+  }
+  dotenv.config({ path: path.join(__dirname, '..', '.env') });
+  dotenv.config({ path: path.join(__dirname, '..', '.env.local'), override: true });
+}
+
+loadEnvFiles();
 
 const LEGACY_PROVIDERS = ['vercel', 'supabase'];
 
