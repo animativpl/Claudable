@@ -605,11 +605,36 @@ async function ensureDependencies(
  * W odróżnieniu od scrubu w `cli/claude-options.ts` nie ma tu allowlisty: tam
  * proces agenta potrzebuje `CLAUDE_CONFIG_DIR` i tokenu, tutaj nie potrzeba
  * żadnej z tych zmiennych.
+ *
+ * Odpada też `NODE_ENV`. Obraz kontenera ustawia `NODE_ENV=production` dla
+ * samej platformy — poprawnie — ale dla cudzego projektu ta wartość znaczy co
+ * innego: `npm install` pomija wtedy devDependencies (projekt zostaje bez
+ * `typescript` i `@types/*`), a dev-server dostaje ostrzeżenie o
+ * niestandardowym NODE_ENV i dociąga brakujące pakiety dopiero w czasie
+ * startu. Kasujemy zamiast podstawiać "development": każde narzędzie ma tu
+ * własną domyślną wartość i wie ją lepiej niż my.
+ *
+ * Odpada wreszcie `__NEXT_PRIVATE_*`. Wyjście standalone platformy
+ * (`/app/server.js` w obrazie) ustawia w swoim procesie
+ * `__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(nextConfig)` — całą
+ * konfigurację Nexta PLATFORMY. `next dev` projektu użytkownika czyta tę
+ * zmienną jako własną konfigurację, więc dostawał `output: 'standalone'`,
+ * `distDir` i `outputFileTracingRoot: /app` Claudable'a: dev-server wstawał,
+ * a każde żądanie kończyło się 500 z ENOENT na
+ * `.next/fallback-build-manifest.json`.
  */
-function scrubClaudeSessionEnv(): NodeJS.ProcessEnv {
+function scrubPlatformEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  // Kasowanie po `key` z `Object.keys`, nie `delete env.NODE_ENV`: Next
+  // deklaruje `NODE_ENV` w `ProcessEnv` jako readonly, więc dostęp po
+  // właściwości nie kompiluje się bez `as any`.
   for (const key of Object.keys(env)) {
-    if (key === 'CLAUDECODE' || key.startsWith('CLAUDE_')) {
+    if (
+      key === 'CLAUDECODE' ||
+      key.startsWith('CLAUDE_') ||
+      key === 'NODE_ENV' ||
+      key.startsWith('__NEXT_PRIVATE_')
+    ) {
       delete env[key];
     }
   }
@@ -617,7 +642,7 @@ function scrubClaudeSessionEnv(): NodeJS.ProcessEnv {
 }
 
 export function buildDevServerEnv(port: number, url: string): NodeJS.ProcessEnv {
-  const env = scrubClaudeSessionEnv();
+  const env = scrubPlatformEnv();
   env.PORT = String(port);
   env.WEB_PORT = String(port);
   env.NEXT_PUBLIC_APP_URL = url;
@@ -631,7 +656,7 @@ export function buildDevServerEnv(port: number, url: string): NodeJS.ProcessEnv 
  * PORT/WEB_PORT/NEXT_PUBLIC_APP_URL.
  */
 export function buildInstallEnv(): NodeJS.ProcessEnv {
-  return scrubClaudeSessionEnv();
+  return scrubPlatformEnv();
 }
 
 export interface PreviewInfo {

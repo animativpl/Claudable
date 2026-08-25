@@ -13,7 +13,7 @@ import ts from 'typescript';
 //
 // Test liczy węzły AST postaci `{ ...process.env }` (SpreadAssignment, którego
 // wyrażeniem jest `process.env`) w całym pliku źródłowym `preview.ts`. Dziś
-// jest dokładnie jedno takie miejsce: wewnątrz `scrubClaudeSessionEnv`. Gdyby
+// jest dokładnie jedno takie miejsce: wewnątrz `scrubPlatformEnv`. Gdyby
 // ktoś przywrócił surowe `{ ...process.env }` w `installDependencies` albo w
 // `start()` zamiast wołać `buildInstallEnv`/`buildDevServerEnv`, ten test
 // złapie drugie wystąpienie — niezależnie od tego, które dokładnie miejsce to

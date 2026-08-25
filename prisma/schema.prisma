@@ -7,7 +7,10 @@
 // "openssl-1.1.x". The runtime layer then pulls openssl in as a
 // ca-certificates dependency, detects OpenSSL 3.0 correctly, and every
 // query dies with "could not locate the Query Engine". Naming the targets
-// explicitly removes the detection step from the build entirely.
+// explicitly guarantees the engine the runtime needs is generated whatever
+// detection returns. It does not switch detection off: `native` is still the
+// first target, so `prisma generate` still resolves it — which is why the
+// build stage installs `openssl` too.
 // Both Debian targets are listed so one image definition serves x86_64 and
 // arm64 hosts; `native` keeps local development working off-Debian.
 generator client {

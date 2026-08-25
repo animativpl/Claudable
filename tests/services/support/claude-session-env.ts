@@ -1,7 +1,7 @@
 // Wspólna lista zmiennych sesji Claude Code i helper do ich tymczasowego
 // wstrzykiwania, dzielone przez `preview-dev-env.test.ts` i
 // `preview-install-env.test.ts`. Wydzielone z dwóch osobnych kopii, bo cała
-// teza scrubu w `preview.ts` (`scrubClaudeSessionEnv`) brzmi "nie wyliczaj
+// teza scrubu w `preview.ts` (`scrubPlatformEnv`) brzmi "nie wyliczaj
 // zmiennych z pamięci, licz na prefiks" — dwie kopie tej samej wyliczonej
 // listy w testach rozjadą się dokładnie tym samym trybem.
 //

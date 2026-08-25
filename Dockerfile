@@ -28,6 +28,15 @@ RUN npx prisma generate && npm run build
 # CLI nie mogło rozjechać się z wygenerowanym klientem.
 FROM node:22-slim AS prisma-cli
 WORKDIR /cli
+# openssl tak samo jak w etapie build: instalacja `prisma` pobiera silniki dla
+# wykrytej wersji libssl, a bez tego pakietu wykrywanie spada do
+# "openssl-1.1.x". Runtime ma OpenSSL 3.0, więc CLI uznaje zabrane silniki za
+# nieswoje i dociąga brakujący z binaries.prisma.sh przy starcie KAŻDEGO
+# świeżego kontenera. Bez dostępu do sieci `db push` pada, a `&&` w CMD
+# zatrzymuje wtedy cały start serwera — kod wyjścia 1, aplikacja nie rusza.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
 COPY package-lock.json /tmp/app-lock.json
 RUN PRISMA_VERSION="$(node -p "require('/tmp/app-lock.json').packages['node_modules/prisma'].version")" \
  && npm init -y > /dev/null \
@@ -69,11 +78,19 @@ COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/prisma ./prisma
 
+# SDK agenta trace standalone bundluje do JavaScriptu, więc samego pakietu nie
+# kopiuje — a zbundlowany kod spawnuje `cli.js` po ścieżce zamrożonej w
+# buildzie: /app/node_modules/@anthropic-ai/claude-agent-sdk/cli.js. Bez tego
+# katalogu pierwsza instrukcja wysłana do agenta pada na "Cannot find module",
+# czyli cała funkcja produktu, i to dopiero przy pierwszym użyciu — start
+# kontenera wygląda zdrowo.
+COPY --from=build --chown=node:node /app/node_modules/@anthropic-ai ./node_modules/@anthropic-ai
+
 # Poza /app, żeby nie mieszać się z `node_modules` z trace'u standalone —
 # COPY scala katalogi i nadpisałby wygenerowanego klienta pakietami CLI.
-# --chown=node: CLI sprawdza przy starcie, czy może pisać do własnego katalogu
-# silników (dociąga je leniwie) i pod nierootowym użytkownikiem przerywa
-# z "please make sure you install prisma with the right permissions".
+# --chown=node: gdyby CLI musiało dociągnąć silnik, sprawdza najpierw, czy może
+# pisać do własnego katalogu silników. Przy poprawnie wykrytym openssl (etap
+# `prisma-cli` wyżej) silnik już tam leży i ta ścieżka się nie odpala.
 COPY --from=prisma-cli --chown=node:node /cli/node_modules /opt/prisma-cli/node_modules
 
 # Użytkownik nierootowy: bez tego każdy plik, który kontener utworzy w
@@ -81,18 +98,23 @@ COPY --from=prisma-cli --chown=node:node /cli/node_modules /opt/prisma-cli/node_
 # To rozwiązuje jednak tylko połowę problemu. Bind-mount zachowuje właściciela
 # katalogu z hosta, więc pliki dostają uid 1000 (`node`), a nie uid osoby
 # uruchamiającej, jeśli ta ma inny. Pełne dopasowanie daje dopiero
-# `user: "${UID}:${GID}"` w compose (Task 20) — i dlatego `chmod a+w` na
-# katalogu silników CLI Prismy: Prisma sprawdza przy starcie, czy może do
-# niego pisać (dociąga silniki leniwie), i pod obcym uid inaczej przerywa.
+# `user: "${UID}:${GID}"` w compose (Task 20).
 # Reszta /app jest tylko czytana, więc dowolny uid wystarczy.
-# Uwaga dla Task 20: katalog konfiguracyjny agenta idzie za $HOME, czyli
-# /home/node/.claude, nie /root/.claude (pierwszeństwo ma CLAUDE_CONFIG_DIR —
-# lib/services/cli/claude-config-dir.ts).
+#
+# HOME i cache npm muszą jednak być zapisywalne, a obcy uid nie ma wpisu w
+# /etc/passwd: bez HOME dostaje `/`, więc `npm config get cache` daje `/.npm`
+# i instalacja zależności projektu użytkownika pada na EACCES (mkdir /.npm).
+# Oba idą pod /data, bo to jedyny katalog, którego właścicielem jest osoba
+# uruchamiająca — montuje go compose.
+# Uwaga dla Task 20: katalog konfiguracyjny agenta idzie za $HOME, czyli teraz
+# /data/home/.claude (pierwszeństwo ma CLAUDE_CONFIG_DIR —
+# lib/services/cli/claude-config-dir.ts). Tam montuje się .claude hosta.
 # Właściciela /app nadają `COPY --chown` powyżej: rekurencyjny `chown -R /app`
 # przepisuje każdy plik do nowej warstwy i kosztował 431 MB.
-RUN mkdir -p /data/projects /home/node/.claude \
- && chown -R node:node /data /home/node/.claude \
- && chmod a+w /opt/prisma-cli/node_modules/@prisma/engines
+ENV HOME=/data/home
+ENV npm_config_cache=/data/.npm
+RUN mkdir -p /data/projects /data/home/.claude /data/.npm \
+ && chown -R node:node /data
 USER node
 
 EXPOSE 3000
@@ -109,4 +131,6 @@ EXPOSE 3100-3131
 # schematu i bez flagi czeka na interaktywne potwierdzenie, którego w
 # kontenerze nikt nie udzieli.
 # `exec node server.js`: bez `exec` SIGTERM trafiłby w powłokę zamiast w Node.
-CMD ["sh", "-c", "node /opt/prisma-cli/node_modules/prisma/build/index.js db push --schema=/app/prisma/schema.prisma --skip-generate --accept-data-loss && exec node server.js"]
+# `mkdir -p` na starcie: bind-mount zasłania katalogi utworzone w obrazie, a
+# HOME i cache npm muszą istnieć, zanim ruszy pierwsza instalacja zależności.
+CMD ["sh", "-c", "mkdir -p \"$HOME\" \"$npm_config_cache\" && node /opt/prisma-cli/node_modules/prisma/build/index.js db push --schema=/app/prisma/schema.prisma --skip-generate --accept-data-loss && exec node server.js"]

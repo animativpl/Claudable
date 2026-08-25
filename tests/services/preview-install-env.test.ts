@@ -25,6 +25,29 @@ describe('buildInstallEnv', () => {
     }
   });
 
+  // `NODE_ENV=production` z obrazu kontenera przechodziło do `npm install`
+  // projektu użytkownika, a npm pomija wtedy devDependencies — projekt
+  // instaluje się bez `typescript` i `@types/*`, a dev-server dociąga 604
+  // pakiety dopiero przy starcie. NODE_ENV platformy nie jest NODE_ENV-em
+  // cudzego projektu; niech każde narzędzie wybierze swoją domyślną wartość.
+  it('nie przekazuje NODE_ENV platformy', () => {
+    const env = withEnv({ NODE_ENV: 'production' }, () => buildInstallEnv());
+
+    expect(env).not.toHaveProperty('NODE_ENV');
+  });
+
+  // Ten sam wyciek co w `buildDevServerEnv`: skrypty `postinstall` projektu
+  // użytkownika (a w templatach `next` bywa wołany właśnie stamtąd) nie mają
+  // czytać konfiguracji Nexta platformy z `__NEXT_PRIVATE_*`.
+  it('nie przekazuje prywatnej konfiguracji Nexta platformy', () => {
+    const env = withEnv(
+      { __NEXT_PRIVATE_STANDALONE_CONFIG: '{"distDir":"./.next"}' },
+      () => buildInstallEnv()
+    );
+
+    expect(env).not.toHaveProperty('__NEXT_PRIVATE_STANDALONE_CONFIG');
+  });
+
   it('zostawia resztę środowiska nietkniętą i nie dokłada PORT/WEB_PORT/NEXT_PUBLIC_APP_URL', () => {
     // Drugi kierunek. Bez niego scrub zwracający pusty obiekt przechodzi.
     const env = withEnv({ CLAUDECODE: '1', ORDINARY_VAR: 'keep-me' }, () =>

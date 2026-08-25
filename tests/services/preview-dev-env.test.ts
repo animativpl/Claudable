@@ -25,6 +25,39 @@ describe('buildDevServerEnv', () => {
     }
   });
 
+  // Obraz kontenera ustawia `NODE_ENV=production` dla samej platformy i tak ma
+  // zostać. Dziedziczenie tej zmiennej przez dev-server cudzego projektu to już
+  // co innego: Next wypisuje ostrzeżenie o niestandardowym NODE_ENV i dociąga w
+  // czasie startu pakiety, które `npm install` pominął jako devDependencies.
+  it('nie przekazuje NODE_ENV platformy', () => {
+    const env = withEnv({ NODE_ENV: 'production' }, () =>
+      buildDevServerEnv(3107, 'http://localhost:3107')
+    );
+
+    expect(env).not.toHaveProperty('NODE_ENV');
+  });
+
+  // Wyjście standalone: `/app/server.js` ustawia w swoim procesie
+  // `__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(nextConfig)`, czyli
+  // konfigurację Nexta PLATFORMY (`output: 'standalone'`, `distDir`,
+  // `outputFileTracingRoot: /app`). Dev-server cudzego projektu dziedziczył tę
+  // zmienną i czytał z niej swoją konfigurację zamiast własnej — `next dev`
+  // wstawał, ale każde żądanie kończyło się 500 i ENOENT na
+  // `.next/fallback-build-manifest.json`. Zmierzone w kontenerze; ten sam
+  // projekt uruchomiony poza nim odpowiadał 200.
+  it('nie przekazuje prywatnej konfiguracji Nexta platformy', () => {
+    const env = withEnv(
+      {
+        __NEXT_PRIVATE_STANDALONE_CONFIG: '{"distDir":"./.next"}',
+        __NEXT_PRIVATE_ORIGIN: 'http://localhost:3000',
+      },
+      () => buildDevServerEnv(3107, 'http://localhost:3107')
+    );
+
+    expect(env).not.toHaveProperty('__NEXT_PRIVATE_STANDALONE_CONFIG');
+    expect(env).not.toHaveProperty('__NEXT_PRIVATE_ORIGIN');
+  });
+
   it('zostawia port, URL i resztę środowiska nietknięte', () => {
     // Drugi kierunek. Bez niego scrub zwracający pusty obiekt przechodzi.
     const env = withEnv({ CLAUDECODE: '1', ORDINARY_VAR: 'keep-me' }, () =>
