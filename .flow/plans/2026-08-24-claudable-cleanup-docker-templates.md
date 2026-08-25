@@ -21,7 +21,7 @@
 - **Nigdy nie commituj `.env` ani `.env.local`** — są w `.gitignore` i zawierają `ENCRYPTION_KEY`. Zmieniaj je lokalnie, gdy zadanie tego wymaga, ale nie dodawaj do commitu.
 - Opcja katalogu roboczego agenta w SDK 0.2.68 nazywa się **`cwd`**. `workingDirectory` nie istnieje w tym SDK.
 - Chirurgia, nie remont: dotykamy wyłącznie tego, co wynika z zadania. Nie dekomponujemy `app/[project_id]/chat/page.tsx` ani `components/chat/ChatLog.tsx` — mimo rozmiaru.
-- Integracja GitHub zostaje nietknięta (`lib/services/{github,git,tokens}.ts`, `components/modals/GitHubRepoModal.tsx`, model `ServiceToken`).
+- Integracja GitHub zostaje nietknięta (`lib/services/{github,git,tokens}.ts`, `components/modals/GitHubRepoModal.tsx`, model `ServiceToken`). „Nietknięta" znaczy: bez zmian w schemacie i w zachowaniu. **Komentarze wyliczające usunięte integracje są wyjątkiem i należy je poprawiać** — `// github, vercel, supabase` nad `ServiceToken.provider` po fazie 1 opisuje stan, którego nie ma, a schema, która kłamie, jest gorsza niż schema uboga. Komentarz w `schema.prisma` nie wpływa na migracje.
 - Każde zadanie kończy się commitem. Wiadomości commitów po angielsku, tryb rozkazujący.
 
 **Grepy weryfikacyjne wykluczają, nigdy nie wyliczają.** Nie podawaj ani listy katalogów, ani listy rozszerzeń — wyłącznie wykluczenia: `-I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow --exclude=package-lock.json .`
@@ -2174,7 +2174,7 @@ export const CLAUDE_DEFAULT_MODEL: ClaudeModelId = 'claude-sonnet-5';
 - [ ] **Step 4: Uruchom test i potwierdź, że przechodzi**
 
 Run: `npx vitest run tests/constants/claude-models.test.ts`
-Expected: PASS — 9 testów
+Expected: PASS — 8 testów
 
 - [ ] **Step 5: Odśwież fixture testu ustawień**
 
@@ -2230,6 +2230,10 @@ by mistake, and the old form stays as an alias."
 ```
 
 ### Task 13: Parytet agenta z terminalem (decyzje 23, 24, 25, 26)
+
+**Przy okazji, bo to Twój plik i nikt inny go już nie dotknie:** `lib/services/cli/claude.ts` ma w trzech blokach JSDoc (`:561`, `:1139`, `:1169`) zapis `@param model - Claude model to use (default: claude-sonnet-4-6)`. Po Task 12 domyślnym modelem jest `claude-sonnet-5`, a `claude-sonnet-4-6` jest już tylko aliasem. Popraw te trzy linie na `claude-sonnet-5`. Zgłosił to implementer Task 12 jako znalezisko poza swoją listą plików — słusznie nie ruszył, bo ten plik należy do Ciebie.
+
+Uwaga na fałszywe trafienie w tej samej okolicy: `lib/services/cli/claude.ts:683` liczy własny `PROJECTS_DIR` dla guardu `allowedBasePath`. To **nie** jest szósta kopia resolvera ścieżek do zwinięcia — to guard, który Twoje zadanie usuwa w całości. Usuwasz go razem z jego stałą, nie zwijasz na `resolveProjectRoot`.
 
 **Files:**
 - Create: `lib/services/cli/claude-config-dir.ts`
