@@ -20,11 +20,10 @@ import {
 } from '@/lib/services/user-requests';
 import { buildClaudeQueryOptions } from './claude-options';
 import { loadAgentDefinitions } from './agents-loader';
+import { loadUserScopeMcpServers } from './mcp-servers-loader';
 import { resolveClaudeConfigDir } from './claude-config-dir';
 import { summarizeInitPayload } from './init-payload';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
-import { buildInitialPrompt } from './initial-prompt';
-import type { TemplateId } from '@/lib/templates/meta';
 import path from 'path';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
@@ -689,14 +688,25 @@ export async function executeClaude(
     // Start Claude Agent SDK query
     console.log(`[ClaudeService] 🤖 Querying Claude Agent SDK...`);
     console.log(`[ClaudeService] 📁 Working Directory: ${absoluteProjectPath}`);
-    // settingSources wnosi skille, hooki, MCP i CLAUDE.md z dysku, ale nie
-    // definicje subagentów — te trafiają do sesji wyłącznie przez `agents`.
+    // settingSources wnosi z dysku skille, hooki, `.mcp.json` projektu i
+    // CLAUDE.md, ale nie definicje subagentów ani MCP servery ze scope `user`
+    // (top-level `mcpServers` w ~/.claude.json, ten który czyta terminalowy
+    // `claude`) — te trafiają do sesji wyłącznie przez opcje `agents` /
+    // `mcpServers` niżej.
     const agents = await loadAgentDefinitions([
       path.join(resolveClaudeConfigDir(), 'agents'),
       path.join(absoluteProjectPath, '.claude', 'agents'),
     ]);
     if (Object.keys(agents).length > 0) {
       console.log(`[ClaudeService] Loaded ${Object.keys(agents).length} subagent definition(s)`);
+    }
+    // Analogicznie do agents: serwery MCP dodane `claude mcp add --scope user`
+    // (top-level `mcpServers` w ~/.claude.json) czyta terminalowy `claude`,
+    // ale SDK ich samo nie podnosi mimo settingSources — patrz komentarz w
+    // mcp-servers-loader.ts.
+    const userMcpServers = await loadUserScopeMcpServers();
+    if (Object.keys(userMcpServers).length > 0) {
+      console.log(`[ClaudeService] Loaded ${Object.keys(userMcpServers).length} user-scope MCP server(s)`);
     }
     const response = query({
       prompt: instruction,
@@ -706,6 +716,7 @@ export async function executeClaude(
           model: resolvedModel,
           sessionId,
           agents,
+          mcpServers: userMcpServers,
         }),
         // Capture SDK stderr so we can surface real errors instead of just exit code
         stderr: (data: string) => {
@@ -1118,28 +1129,16 @@ export async function executeClaude(
 }
 
 /**
- * Initialize a new project with Claude Code
- *
- * @param projectId - Project ID
- * @param projectPath - Project directory path
- * @param templateId - Template the project was scaffolded from
- * @param initialPrompt - Initial prompt
- * @param model - Claude model to use (default: claude-sonnet-5)
- * @param requestId - (Optional) User request tracking ID
+ * Initialize a new project with Claude Code (fresh session, no resume).
  */
 export async function initializeProject(
   projectId: string,
   projectPath: string,
-  templateId: TemplateId,
   initialPrompt: string,
   model: string = CLAUDE_DEFAULT_MODEL,
   requestId?: string
 ): Promise<void> {
-  console.log(`[ClaudeService] Initializing ${templateId} project: ${projectId}`);
-
-  const fullPrompt = buildInitialPrompt(templateId, initialPrompt);
-
-  await executeClaude(projectId, projectPath, fullPrompt, model, undefined, requestId);
+  await executeClaude(projectId, projectPath, initialPrompt, model, undefined, requestId);
 }
 
 /**

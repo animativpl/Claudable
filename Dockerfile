@@ -58,8 +58,22 @@ ENV HOSTNAME=0.0.0.0
 # pakietu `openssl` wykrywanie cicho spada do "openssl-1.1.x" i klient szuka
 # silnika, którego w obrazie nie ma. Dziś wchodzi tranzytywnie przez
 # ca-certificates; jest wymieniony wprost, bo jest wymagany, a nie przypadkowy.
+#
+# Playwright (system deps dla Chromium): same binaria przeglądarki NIE są tu
+# instalowane — agent robi `npx playwright install chromium` w projekcie i
+# trafiają one do PLAYWRIGHT_BROWSERS_PATH=/data/home/.cache/ms-playwright,
+# czyli do bind-mounted /data, gdzie przeżywają restart kontenera. Bez tych
+# lib Chromium pada na "error while loading shared libraries" i żaden projekt
+# nie uruchomi testów E2E ani scrapeingu. Lista pochodzi z Playwright dla
+# Debian Bookworm (node:22-slim). xdg-utils: skrypt startowy chromium go
+# sprawdza. fonts-liberation: bez fontu Chromium renderuje puste glify.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git python3 bash openssl ca-certificates \
+ && apt-get install -y --no-install-recommends \
+    git python3 bash openssl ca-certificates \
+    libasound2 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 libdbus-1-3 \
+    libdrm2 libgbm1 libglib2.0-0 libgtk-3-0 libnspr4 libnss3 libpango-1.0-0 \
+    libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 \
+    libxkbcommon0 libxrandr2 libxshmfence1 fonts-liberation xdg-utils \
  && rm -rf /var/lib/apt/lists/*
 
 # Wyjście standalone zamiast pełnego `node_modules` + `next start`.
@@ -113,6 +127,9 @@ COPY --from=prisma-cli --chown=node:node /cli/node_modules /opt/prisma-cli/node_
 # przepisuje każdy plik do nowej warstwy i kosztował 431 MB.
 ENV HOME=/data/home
 ENV npm_config_cache=/data/.npm
+# Binaria Playwright lądują w /data (bind-mount) zamiast w /home lub /root,
+# dzięki czemu przeżywają restart kontenera i nie trzeba ich pobierać ponownie.
+ENV PLAYWRIGHT_BROWSERS_PATH=/data/home/.cache/ms-playwright
 RUN mkdir -p /data/projects /data/home/.claude /data/.npm \
  && chown -R node:node /data
 USER node

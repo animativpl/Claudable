@@ -1,94 +1,24 @@
-# Uruchomienie:
-#
-#   cp .env.docker.example .env.docker   # uzupełnij, patrz komentarze w środku
-#   mkdir -p data/home                   # zbędne po `npm install`, patrz niżej
-#   docker compose --env-file .env.docker up --build -d
-#
-# `data/home` musi istnieć i należeć do Ciebie, zanim ruszy pierwszy start:
-# brakujące katalogi bind-mountu tworzy demon Dockera, czyli root, i takie
-# zostają na hoście, a kontener chodzi pod uid użytkownika. Zmierzone:
-# na czystym katalogu (`./data` też nie ma) kontener kończy się kodem 1;
-# gdy `./data` jest, a `data/home` nie — aplikacja wstaje, ale HOME należy
-# do roota i `~/.claude.json` jest niezapisywalny, czyli awaria cicha.
-# `scripts/setup-env.js` tworzy dziś `data/home` razem z `data/projects`, więc
-# po `npm install` w repo krok ręczny odpada. Zostaje dla kogoś, kto klonuje
-# repo wyłącznie pod Dockera, oraz przy ustawionym CLAUDABLE_DATA:
-# `mkdir -p "$CLAUDABLE_DATA/home"`.
-#
-# `--env-file` jest wymagany, nie ozdobny. Compose podstawia `${...}` niżej
-# wyłącznie ze środowiska powłoki i z pliku interpolacji (domyślnie `./.env`),
-# a NIGDY z `env_file:` sekcji usługi — ta trafia dopiero do środowiska
-# kontenera. Bez tej flagi `HOST_UID`/`HOST_GID` z `.env.docker` są niewidoczne
-# dla `user:` niżej. Dlatego `user:` używa `${HOST_UID:?...}`: brak wartości
-# zatrzymuje `docker compose` z komunikatem, zamiast po cichu uruchomić
-# kontener pod cudzym uid.
-# Domyślne `./.env` tej roli pełnić nie może — trzyma konfigurację dev
-# (`DATABASE_URL` wskazujący ścieżkę hosta) i ma własnego generatora.
 services:
   claudable:
-    build: .
+    build:
+      context: .
+      network: host
     image: claudable:dev
-    # Dev-servery projektów są dziećmi tego kontenera — PID 1 musi je zbierać.
     init: true
-    # KLUCZOWE: bez tego kontener działa jako root i po pierwszym odświeżeniu
-    # tokenu OAuth pliki w zamontowanym katalogu .claude po stronie HOSTA
-    # zmieniają właściciela na root — a wtedy `claude` w twoim terminalu
-    # przestaje działać.
-    #
-    # `:?` zamiast domyślnego 1000: zapomniany `--env-file` ma zatrzymać start,
-    # nie wyprodukować kontener z cudzym uid. Zmierzone na hoście o uid 1001:
-    # z domyślną wartością kontener wstawał jako 1000 i padał na `mkdir: cannot
-    # create directory '/data/.npm': Permission denied` — komunikat, który nie
-    # wymienia ani HOST_UID, ani --env-file. Tam, gdzie /data akurat jest
-    # zapisywalne dla 1000, ruszyłby i po cichu przejął pliki w mouncie .claude.
     user: "${HOST_UID:?set HOST_UID in .env.docker (id -u) and start with: docker compose --env-file .env.docker up}:${HOST_GID:?set HOST_GID in .env.docker (id -g) and start with: docker compose --env-file .env.docker up}"
     env_file:
       - .env.docker
-    # Oba zakresy związane z 127.0.0.1, nie z 0.0.0.0. Aplikacja nie ma
-    # uwierzytelnienia i daje agentowi narzędzie Bash, więc publikacja na
-    # wszystkich interfejsach to zdalne wykonanie kodu dla każdego w tej samej
-    # sieci. Udokumentowany przepływ jest lokalny i nic na tym nie traci.
-    ports:
-      - "127.0.0.1:3000:3000"
-      # 32 sloty preview. Ta sama liczba co PREVIEW_PORT_START/_END niżej
-      # i co EXPOSE w obrazie; port przydzielony poza nią jest z hosta
-      # nieosiągalny.
-      - "127.0.0.1:3100-3131:3100-3131"
+    network_mode: host
     environment:
-      # HOME celowo NIE jest tu ustawiane — obraz ustawia `/data/home`, bo pod
-      # dowolnym uid z `user:` nie ma wpisu w passwd i HOME wskazywałby na
-      # niezapisywalny `/`. Nadpisanie na katalog spoza mountu daje ścieżkę
-      # należącą do roota, a Claude Code trzyma `~/.claude.json` POZA
-      # CLAUDE_CONFIG_DIR — zweryfikowane uruchomieniem w Task 19:
-      # `touch $HOME/.claude.json` → Permission denied.
-      #
-      # Jedyny sekret aplikacji, i jedyna jego kopia w kontenerze. `:?` z tego
-      # samego powodu co przy `user:` wyżej: `lib/crypto.ts` czyta
-      # `process.env.ENCRYPTION_KEY || crypto.randomBytes(32)`, więc pusta
-      # wartość nie zatrzymuje startu — daje NOWY losowy klucz przy KAŻDYM
-      # starcie kontenera. Aplikacja działa w tej sesji, a po restarcie każdy
-      # `ServiceToken` i każdy zaszyfrowany `EnvVar` jest nie do odszyfrowania,
-      # z błędem szyfru zamiast komunikatu o złym kluczu. Lokalnie klucz
-      # generuje `scripts/setup-env.js`; ścieżka Dockera własnego generatora
-      # nie ma, więc strażnik jest tu jedyną obroną.
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env.docker (32-byte hex, generator in the comment there) and start with: docker compose --env-file .env.docker up}"
       PROJECTS_DIR: /data/projects
       DATABASE_URL: file:/data/cc.db
-      # Bez tego /api/settings zwraca 500 z EACCES mkdir /app/data — /app
-      # w obrazie jest tylko do odczytu.
       SETTINGS_DIR: /data
       PREVIEW_PORT_START: "3100"
       PREVIEW_PORT_END: "3131"
-      # Katalog, z którego agent bierze CLAUDE.md, skille, hooki i MCP —
-      # dokładnie tak jak `claude` w terminalu. Jest na allowliście
-      # CLAUDE_ENV_ALLOWLIST w lib/services/cli/claude-options.ts; bez wpisu
-      # scrub prefiksu CLAUDE_ odciąłby ją procesowi agenta po cichu.
       CLAUDE_CONFIG_DIR: /data/home/.claude
     volumes:
-      # Projekty, baza i ustawienia globalne. Tu ląduje też cache npm
-      # (obraz ustawia npm_config_cache=/data/.npm), więc katalog urośnie
-      # o setki megabajtów po pierwszych instalacjach zależności.
       - ${CLAUDABLE_DATA:-./data}:/data
-      # Konfiguracja agenta. Musi być zapisywalna: odświeżenie tokenu OAuth
-      # pisze do .credentials.json, a przy :ro agent padnie po jego wygaśnięciu.
       - ${CLAUDABLE_CLAUDE_DIR:-${HOME}/.claude}:/data/home/.claude
+      - ${HOME}/.figma-console-mcp:/data/home/.figma-console-mcp
+      - ${HOME}/.claude.json:/data/home/.claude.json

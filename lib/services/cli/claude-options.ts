@@ -1,4 +1,4 @@
-import type { AgentDefinition, Options } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition, McpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk';
 import { scrubProcessEnv } from '@/lib/utils/env-scrub';
 
 // Zmienne, które muszą przeżyć scrub mimo pasowania do prefiksu CLAUDE_:
@@ -29,6 +29,7 @@ export interface BuildClaudeOptionsInput {
   model: string;
   sessionId?: string;
   agents?: Record<string, AgentDefinition>;
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 /**
@@ -44,16 +45,11 @@ export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options
     resume: input.sessionId,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
-    // Preset, nie string: string ZASTĘPUJE prompt Claude Code, a pominięcie
-    // opcji daje prompt PUSTY (`sdk.mjs`: `if (Y === void 0) G = ""`). Wchodzi
-    // już tutaj, nie w Task 13, bo między tymi zadaniami dowody z uruchomienia
-    // zbierałyby się na agencie bez żadnych instrukcji.
-    systemPrompt: { type: 'preset', preset: 'claude_code' },
-    // Nowe w tym zadaniu: skille, CLAUDE.md, hooki i MCP z katalogu
-    // konfiguracyjnego. Bez tego SDK działa w trybie izolacji i nie czyta
-    // z dysku nic.
     settingSources: ['user', 'project', 'local'],
     env: childEnv(),
     ...(input.agents && Object.keys(input.agents).length > 0 ? { agents: input.agents } : {}),
+    ...(input.mcpServers && Object.keys(input.mcpServers).length > 0
+      ? { mcpServers: input.mcpServers }
+      : {}),
   };
 }

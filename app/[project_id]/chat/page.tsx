@@ -237,6 +237,7 @@ export default function ChatPage() {
   const [thinkingMode, setThinkingMode] = useState<boolean>(false);
   const [isUpdatingModel, setIsUpdatingModel] = useState<boolean>(false);
   const [currentRoute, setCurrentRoute] = useState<string>('/');
+  const [projectRoutes, setProjectRoutes] = useState<string[]>([]);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
@@ -1587,6 +1588,18 @@ const persistProjectPreferences = useCallback(
   }, []);
 
   // Auto-start the preview once the agent finishes its first run.
+  useEffect(() => {
+    if (!previewUrl) return;
+    fetch(`${API_BASE}/api/projects/${projectId}/routes`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.routes) && data.routes.length > 1) {
+          setProjectRoutes(data.routes);
+        }
+      })
+      .catch(() => {});
+  }, [previewUrl, projectId]);
+
   // `isRunning` is POST bookkeeping, not agent state: /act returns immediately
   // and both senders clear it in `finally` right after the request returns, so
   // its falling edge lands when the agent starts, not when it finishes. Gate on
@@ -1935,21 +1948,38 @@ const persistProjectPreferences = useCallback(
                           <FaHome size={12} />
                         </span>
                         <span className="text-sm text-gray-500 mr-1">/</span>
-                        <input
-                          type="text"
-                          value={currentRoute.startsWith('/') ? currentRoute.slice(1) : currentRoute}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setCurrentRoute(value ? `/${value}` : '/');
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              navigateToRoute(currentRoute);
-                            }
-                          }}
-                          className="bg-transparent text-sm text-gray-700 outline-none w-40"
-                          placeholder="route"
-                        />
+                        {projectRoutes.length > 1 ? (
+                          <select
+                            value={currentRoute}
+                            onChange={(e) => {
+                              navigateToRoute(e.target.value);
+                            }}
+                            className="bg-transparent text-sm text-gray-700 outline-none w-40 cursor-pointer"
+                          >
+                            {(!projectRoutes.includes(currentRoute)) && (
+                              <option value={currentRoute}>{currentRoute === '/' ? '' : currentRoute.slice(1)}</option>
+                            )}
+                            {projectRoutes.map((r) => (
+                              <option key={r} value={r}>{r === '/' ? '' : r.slice(1)}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={currentRoute.startsWith('/') ? currentRoute.slice(1) : currentRoute}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setCurrentRoute(value ? `/${value}` : '/');
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                navigateToRoute(currentRoute);
+                              }
+                            }}
+                            className="bg-transparent text-sm text-gray-700 outline-none w-40"
+                            placeholder="route"
+                          />
+                        )}
                         <button
                           onClick={() => navigateToRoute(currentRoute)}
                           className="ml-2 text-gray-500 hover:text-gray-700 "

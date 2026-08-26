@@ -31,9 +31,9 @@ describe('buildClaudeQueryOptions', () => {
     expect(options.resume).toBe('sess-9');
   });
 
-  it('używa presetowego promptu Claude Code, bez nadpisania i bez append', () => {
+  it('nie ustawia systemPrompt — prompt pochodzi z katalogu .claude', () => {
     const options = buildClaudeQueryOptions(input);
-    expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code' });
+    expect(options.systemPrompt).toBeUndefined();
   });
 
   it('włącza wszystkie źródła ustawień z dysku', () => {
@@ -124,5 +124,16 @@ describe('buildClaudeQueryOptions', () => {
   it('pomija pole agents, gdy nic nie wczytano', () => {
     expect(buildClaudeQueryOptions(input).agents).toBeUndefined();
     expect(buildClaudeQueryOptions({ ...input, agents: {} }).agents).toBeUndefined();
+  });
+
+  it('przekazuje wczytane serwery MCP scope user', () => {
+    const mcpServers = { figma: { command: 'npx', args: ['figma-console-mcp@latest'] } };
+    const options = buildClaudeQueryOptions({ ...input, mcpServers });
+    expect(options.mcpServers).toEqual(mcpServers);
+  });
+
+  it('pomija pole mcpServers, gdy nic nie wczytano', () => {
+    expect(buildClaudeQueryOptions(input).mcpServers).toBeUndefined();
+    expect(buildClaudeQueryOptions({ ...input, mcpServers: {} }).mcpServers).toBeUndefined();
   });
 });

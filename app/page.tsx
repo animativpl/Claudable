@@ -3,13 +3,11 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import DeleteProjectModal from '@/components/modals/DeleteProjectModal';
+import CreateProjectModal from '@/components/modals/CreateProjectModal';
 import GlobalSettings from '@/components/settings/GlobalSettings';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
-import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
-import { Image as ImageIcon } from 'lucide-react';
+import { getDefaultModelForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
 import type { Project as ProjectSummary } from '@/types/project';
-import { TEMPLATE_META_LIST, DEFAULT_TEMPLATE_ID } from '@/lib/templates/meta';
-import { randomId } from '@/lib/utils/random-id';
 
 // Ensure fetch is available
 const fetchAPI = globalThis.fetch || fetch;
@@ -19,7 +17,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 // Claude is the only agent, so its brand color is used unconditionally.
 const CLAUDE_BRAND_COLOR = '#DE7356';
 
-const CLAUDE_MODELS = getModelDefinitionsForCli(null);
 
 export default function HomePage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -29,7 +26,7 @@ export default function HomePage() {
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; project: ProjectSummary | null }>({ isOpen: false, project: null });
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [prompt, setPrompt] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const DEFAULT_MODEL = getDefaultModelForCli(null);
 
   const normalizeProjectPayload = useCallback((project: any): ProjectSummary => {
@@ -51,7 +48,6 @@ export default function HomePage() {
     };
   }, []);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>(DEFAULT_TEMPLATE_ID);
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -110,32 +106,8 @@ export default function HomePage() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, []);
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [uploadedImages, setUploadedImages] = useState<{ id: string; name: string; url: string; path: string; file?: File }[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
   const router = useRouter();
   const prefetchTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Click outside handler
-  useEffect(() => {
-    const handleDocumentClick = (event: MouseEvent) => {
-      const target = event.target as Node;
-
-      const modelEl = modelDropdownRef.current;
-      if (modelEl && !modelEl.contains(target)) {
-        setShowModelDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleDocumentClick);
-    return () => {
-      document.removeEventListener('mousedown', handleDocumentClick);
-    };
-  }, []);
 
   // Format time for display
   const formatTime = (dateString: string | null) => {
@@ -303,271 +275,14 @@ export default function HomePage() {
     }
   }
 
-  // Handle files (for both drag drop and file input)
-  const handleFiles = useCallback(async (files: FileList | File[]) => {
-    setIsUploading(true);
-    
-    try {
-      const filesArray = Array.from(files as ArrayLike<File>);
-      const imagesToAdd = filesArray
-        .filter(file => file.type.startsWith('image/'))
-        .map(file => ({
-          id: randomId('img'),
-          name: file.name,
-          url: URL.createObjectURL(file),
-          path: '',
-          file,
-        }));
-
-      if (imagesToAdd.length > 0) {
-        setUploadedImages(prev => [...prev, ...imagesToAdd]);
-      }
-    } catch (error) {
-      console.error('Image processing failed:', error);
-      showToast('Failed to process image. Please try again.', 'error');
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  }, [showToast]);
-
-  // Handle image upload - store locally first, upload after project creation
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    
-    await handleFiles(files);
-  };
-
-  // Drag and drop handlers
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // Only set to false if we're leaving the container completely
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setIsDragOver(false);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'copy';
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      handleFiles(files);
-    }
-  };
-
-  // Remove uploaded image
-  const removeImage = (id: string) => {
-    setUploadedImages(prev => {
-      const imageToRemove = prev.find(img => img.id === id);
-      if (imageToRemove) {
-        URL.revokeObjectURL(imageToRemove.url);
-      }
-      return prev.filter(img => img.id !== id);
-    });
-  };
-
-  const handleSubmit = async () => {
-    if ((!prompt.trim() && uploadedImages.length === 0) || isCreatingProject) return;
-    
-    setIsCreatingProject(true);
-    
-    // Generate a unique project ID
-    const projectId = `project-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    try {
-      // Create a new project first
-      const response = await fetchAPI(`${API_BASE}/api/projects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_id: projectId,
-          name: prompt.slice(0, 50) + (prompt.length > 50 ? '...' : ''),
-          initialPrompt: prompt.trim(),
-          selectedModel,
-          templateType: selectedTemplate
-        })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        console.error('Failed to create project:', errorData);
-        showToast('Failed to create project', 'error');
-        setIsCreatingProject(false);
-        return;
-      }
-      
-      const payload = await response.json();
-      const projectData = (payload && typeof payload === 'object') ? (payload.data ?? payload) : payload;
-      const createdProjectId: string | undefined = projectData?.id ?? projectId;
-      if (!createdProjectId) {
-        console.error('Create project response missing id:', payload);
-        showToast('Failed to create project (invalid response)', 'error');
-        setIsCreatingProject(false);
-        return;
-      }
-      if (createdProjectId !== projectId) {
-        console.warn('Project ID mismatch between request and response:', {
-          requestedId: projectId,
-          responseId: createdProjectId,
-          payload
-        });
-      }
-      
-      // Upload images if any
-      let imageData: any[] = [];
-      
-      if (uploadedImages.length > 0) {
-        try {
-          for (let i = 0; i < uploadedImages.length; i++) {
-            const image = uploadedImages[i];
-            if (!image.file) continue;
-            
-            const formData = new FormData();
-            formData.append('file', image.file);
-
-            const uploadResponse = await fetchAPI(`${API_BASE}/api/assets/${createdProjectId}/upload`, {
-              method: 'POST',
-              body: formData
-            });
-
-            if (uploadResponse.ok) {
-              const result = await uploadResponse.json();
-              // Track image data for API
-              imageData.push({
-                name: result.filename || image.name,
-                path: result.absolute_path,
-                public_url: typeof result.public_url === 'string' ? result.public_url : undefined
-              });
-            }
-          }
-        } catch (uploadError) {
-          console.error('Image upload failed:', uploadError);
-          showToast('Images could not be uploaded, but project was created', 'error');
-        }
-      }
-      
-      // Execute initial prompt directly with images
-      if (prompt.trim()) {
-        try {
-          const actResponse = await fetchAPI(`${API_BASE}/api/chat/${createdProjectId}/act`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              instruction: prompt.trim(), // Original prompt without image paths
-              images: imageData,
-              isInitialPrompt: true,
-              selectedModel
-            })
-          });
-          
-          if (actResponse.ok) {
-            // Successfully kicked off ACT with image payloads
-          } else {
-            console.error('❌ ACT failed:', await actResponse.text());
-          }
-        } catch (actError) {
-          console.error('❌ ACT API error:', actError);
-        }
-      }
-      
-      // Navigate to chat page with the selected model
-      uploadedImages.forEach(image => {
-        if (image.url) {
-          URL.revokeObjectURL(image.url);
-        }
-      });
-      setUploadedImages([]);
-      setPrompt('');
-
-      const params = new URLSearchParams();
-      if (selectedModel) params.set('model', selectedModel);
-      router.push(`/${createdProjectId}/chat${params.toString() ? '?' + params.toString() : ''}`);
-      
-    } catch (error) {
-      console.error('Failed to create project:', error);
-      showToast('Failed to create project', 'error');
-    } finally {
-      setIsCreatingProject(false);
-    }
-  };
-
-  useEffect(() => { 
+  useEffect(() => {
     load();
-    
-    // Handle clipboard paste for images
-    const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      
-      const imageFiles: File[] = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile();
-          if (file) {
-            imageFiles.push(file);
-          }
-        }
-      }
-      
-      if (imageFiles.length > 0) {
-        e.preventDefault();
-        const fileList = {
-          length: imageFiles.length,
-          item: (index: number) => imageFiles[index],
-          [Symbol.iterator]: function* () {
-            for (let i = 0; i < imageFiles.length; i++) {
-              yield imageFiles[i];
-            }
-          }
-        } as FileList;
-        
-        // Convert to FileList-like object
-        Object.defineProperty(fileList, 'length', { value: imageFiles.length });
-        imageFiles.forEach((file, index) => {
-          Object.defineProperty(fileList, index, { value: file });
-        });
-        
-        handleFiles(fileList);
-      }
-    };
-    
-    document.addEventListener('paste', handlePaste);
     const timers = prefetchTimers.current;
-
-    // Cleanup prefetch timers
     return () => {
       timers.forEach(timer => clearTimeout(timer));
       timers.clear();
-      document.removeEventListener('paste', handlePaste);
     };
-  }, [handleFiles, load]);
-
-  const handleModelChange = (modelId: string) => {
-    setUsingGlobalDefaults(false);
-    setIsInitialLoad(false);
-    setSelectedModel(normalizeModelId(null, modelId));
-    setShowModelDropdown(false);
-  };
+  }, [load]);
 
 
   return (
@@ -802,234 +517,35 @@ export default function HomePage() {
         </div>
       </div>
       
-      {/* Main Content - Not affected by sidebar */}
+      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 flex items-center justify-center p-8">
-          <div className="w-full max-w-4xl">
-            <div className="text-center mb-12">
-              <div className="flex justify-center mb-6">
-                <h1 
-                  className="font-extrabold tracking-tight select-none transition-colors duration-1000 ease-in-out"
-                  style={{
-                    fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-                    color: CLAUDE_BRAND_COLOR,
-                    letterSpacing: '-0.06em',
-                    fontWeight: 800,
-                    fontSize: '72px',
-                    lineHeight: '72px'
-                  }}
-                >
-                  Claudable
-                </h1>
-              </div>
-              <p className="text-xl text-gray-700 font-light tracking-tight">
-                Connect CLI Agent • Build what you want • Preview instantly
-              </p>
-            </div>
-            
-            {/* Image thumbnails */}
-            {uploadedImages.length > 0 && (
-              <div className="mb-4 flex flex-wrap gap-2">
-                {uploadedImages.map((image, index) => (
-                  <div key={image.id} className="relative group">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img 
-                      src={image.url} 
-                      alt={image.name}
-                      className="w-20 h-20 object-cover rounded-lg border border-gray-200 "
-                    />
-                    <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs px-1 py-0.5 rounded-b-lg">
-                      Image #{index + 1}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeImage(image.id)}
-                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Main Input Form */}
-            <form 
-              onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
-              onDragEnter={handleDragEnter}
-              onDragLeave={handleDragLeave}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              className={`group flex flex-col gap-4 p-4 w-full rounded-[28px] border backdrop-blur-xl text-base shadow-xl transition-all duration-150 ease-in-out mb-6 relative overflow-visible ${
-                isDragOver 
-                  ? 'border-[#DE7356] bg-[#DE7356]/10 ' 
-                  : 'border-gray-200 bg-white '
-              }`}
+          <div className="text-center">
+            <h1
+              className="font-extrabold tracking-tight select-none mb-4"
+              style={{
+                fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                color: CLAUDE_BRAND_COLOR,
+                letterSpacing: '-0.06em',
+                fontWeight: 800,
+                fontSize: '72px',
+                lineHeight: '72px',
+              }}
             >
-              <div className="relative flex flex-1 items-center">
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Ask Claudable to create a blog about..."
-                  disabled={isCreatingProject}
-                  className="flex w-full rounded-md px-2 py-2 placeholder:text-gray-400 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 bg-transparent focus:bg-transparent flex-1 text-gray-900 overflow-y-auto"
-                  style={{ height: '120px' }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      if (e.metaKey || e.ctrlKey) {
-                        e.preventDefault();
-                        handleSubmit();
-                      } else if (!e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmit();
-                      }
-                    }
-                  }}
-                />
-              </div>
-              
-              {/* Drag overlay */}
-              {isDragOver && (
-                <div className="absolute inset-0 bg-[#DE7356]/10 rounded-[28px] flex items-center justify-center z-10 border-2 border-dashed border-[#DE7356]">
-                  <div className="text-center">
-                    <div className="text-3xl mb-3">📸</div>
-                    <div className="text-lg font-semibold text-[#DE7356] mb-2">
-                      Drop images here
-                    </div>
-                    <div className="text-sm text-[#DE7356] ">
-                      Supports: JPG, PNG, GIF, WEBP
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              <div className="flex gap-1 flex-wrap items-center">
-                {/* Image Upload Button */}
-                <div className="flex items-center gap-2">
-                  <label 
-                    className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Upload images"
-                  >
-                    <ImageIcon className="h-4 w-4" />
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleImageUpload}
-                      disabled={isUploading || isCreatingProject}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-                {/* Template Selector */}
-                <div className="flex items-center gap-1">
-                  {TEMPLATE_META_LIST.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      title={template.description}
-                      onClick={() => setSelectedTemplate(template.id)}
-                      className={`justify-center whitespace-nowrap text-sm font-medium transition-colors duration-100 ease-in-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 border px-3 py-2 flex h-8 items-center rounded-full focus-visible:ring-0 ${
-                        selectedTemplate === template.id
-                          ? 'border-gray-200/50 bg-gray-100 text-black font-semibold'
-                          : 'border-gray-200/50 bg-transparent shadow-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300/50 hover:text-gray-900'
-                      }`}
-                    >
-                      {template.label}
-                    </button>
-                  ))}
-                </div>
-                {/* Model Selector */}
-                <div className="relative z-[200]" ref={modelDropdownRef}>
-                  <button
-                    type="button"
-                    onClick={() => setShowModelDropdown((current) => !current)}
-                    className="justify-center whitespace-nowrap text-sm font-medium transition-colors duration-100 ease-in-out focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 border border-gray-200/50 bg-transparent shadow-sm hover:bg-gray-50 hover:border-gray-300/50 px-3 py-2 flex h-8 items-center gap-1 rounded-full text-gray-700 hover:text-gray-900 focus-visible:ring-0 min-w-[140px]"
-                  >
-                    <span className="text-sm font-medium whitespace-nowrap">
-                      {CLAUDE_MODELS.find(m => m.id === selectedModel)?.name ?? getModelDisplayName(null, selectedModel)}
-                    </span>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 -960 960 960" className="shrink-0 h-3 w-3 rotate-90 ml-auto" fill="currentColor">
-                      <path d="M530-481 353-658q-9-9-8.5-21t9.5-21 21.5-9 21.5 9l198 198q5 5 7 10t2 11-2 11-7 10L396-261q-9 9-21 8.5t-21-9.5-9-21.5 9-21.5z"/>
-                    </svg>
-                  </button>
-
-                  {showModelDropdown && (
-                    <div className="absolute top-full mt-1 left-0 z-[300] min-w-full max-h-[300px] overflow-y-auto rounded-2xl border border-gray-200 bg-white backdrop-blur-xl shadow-lg">
-                      {CLAUDE_MODELS.map((model) => (
-                          <button
-                            key={model.id}
-                            onClick={() => handleModelChange(model.id)}
-                            className={`w-full px-3 py-2 text-left first:rounded-t-2xl last:rounded-b-2xl transition-colors ${
-                              selectedModel === model.id 
-                                ? 'bg-gray-100 text-black font-semibold' 
-                                : 'text-gray-800 hover:text-black hover:bg-gray-100 '
-                            }`}
-                          >
-                            <span className="text-sm font-medium">{model.name}</span>
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                </div>
-                
-                {/* Send Button */}
-                <div className="ml-auto flex items-center gap-1">
-                  <button
-                    type="submit"
-                    disabled={(!prompt.trim() && uploadedImages.length === 0) || isCreatingProject}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-900 text-white transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 hover:scale-110"
-                  >
-                    {isCreatingProject ? (
-                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 -960 960 960" className="shrink-0" fill="currentColor">
-                        <path d="M442.39-616.87 309.78-487.26q-11.82 11.83-27.78 11.33t-27.78-12.33q-11.83-11.83-11.83-27.78 0-15.96 11.83-27.79l198.43-199q11.83-11.82 28.35-11.82t28.35 11.82l198.43 199q11.83 11.83 11.83 27.79 0 15.95-11.83 27.78-11.82 11.83-27.78 11.83t-27.78-11.83L521.61-618.87v348.83q0 16.95-11.33 28.28-11.32 11.33-28.28 11.33t-28.28-11.33q-11.33-11.33-11.33-28.28z"/>
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </form>
-            
-            {/* Example Cards */}
-            <div className="flex flex-wrap gap-2 justify-center mt-8">
-              {[
-                { 
-                  text: 'Landing Page',
-                  prompt: 'Design a modern, elegant, and visually stunning landing page for claudable with a clean, minimalistic aesthetic and a strong focus on user experience and conversion. Use a harmonious color palette, smooth gradients, soft shadows, and subtle animations to create a premium feel. Include a bold hero section with a clear headline and CTA, feature highlights with simple icons, social proof like testimonials or logos, and a final call-to-action at the bottom. Use large, impactful typography, balanced white space, and a responsive grid-based layout for a polished, pixel-perfect design optimized for both desktop and mobile.'
-                },
-                { 
-                  text: 'Gaming Platform',
-                  prompt: 'Design a modern, clean, and visually engaging game platform UI for Lunaris Play, focusing on simplicity, usability, and an immersive user experience. Use a minimalistic yet dynamic aesthetic with smooth gradients, soft shadows, and subtle animations to create a premium, gamer-friendly vibe. Include a hero section highlighting trending and featured games, a game catalog grid with attractive thumbnails, quick-access filter and search options, and a user dashboard for profile, achievements, and recent activity. Typography should be bold yet clean, the layout responsive and intuitive, and the overall design polished, pixel-perfect, and optimized for both desktop and mobile.'
-                },
-                { 
-                  text: 'Onboarding Portal',
-                  prompt: 'Design a modern, intuitive, and visually appealing onboarding portal for new users, focusing on simplicity, clarity, and a smooth step-by-step experience. Use a clean layout with soft gradients, subtle shadows, and minimalistic icons to guide users through the process. Include a welcome hero section, an interactive progress tracker, and easy-to-follow forms. Typography should be bold yet friendly, and the overall design must feel welcoming, polished, and optimized for both desktop and mobile.'
-                },
-                { 
-                  text: 'Networking App',
-                  prompt: 'Design a sleek, modern, and user-friendly networking app interface for professionals to connect, chat, and collaborate. Use a vibrant yet minimal aesthetic with smooth animations, clean typography, and an elegant color palette to create an engaging social experience. Include a profile showcase, smart connection recommendations, real-time messaging, and a personalized activity feed. The layout should be intuitive, responsive, and optimized for seamless interaction across devices.'
-                },
-                { 
-                  text: 'Room Visualizer',
-                  prompt: 'Design a modern, immersive, and highly interactive room visualizer platform where users can preview furniture and decor in a 3D virtual environment. Use a clean, minimal design with elegant gradients, realistic visuals, and smooth transitions for a premium feel. Include a drag-and-drop furniture catalog, real-time 3D previews, color and style customization tools, and an intuitive save-and-share feature. Ensure the interface feels intuitive, responsive, and optimized for desktop and mobile experiences.'
-                }
-              ].map((example) => (
-                <button
-                  key={example.text}
-                  onClick={() => setPrompt(example.prompt)}
-                  disabled={isCreatingProject}
-                  className="px-4 py-2 text-sm font-medium text-gray-500 bg-transparent border border-[#DE7356]/10 rounded-full hover:bg-gray-50 hover:border-[#DE7356]/15 hover:text-gray-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {example.text}
-                </button>
-              ))}
-            </div>
+              Claudable
+            </h1>
+            <p className="text-xl text-gray-700 font-light tracking-tight mb-10">
+              Connect CLI Agent • Build what you want • Preview instantly
+            </p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-[#DE7356] hover:bg-[#c85e42] text-white font-semibold rounded-2xl shadow-lg transition-colors text-base"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
+              New Project
+            </button>
           </div>
         </div>
       </div>
@@ -1040,69 +556,21 @@ export default function HomePage() {
         onClose={() => setShowGlobalSettings(false)}
       />
 
+      {/* Create Project Modal */}
+      <CreateProjectModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        defaultModel={selectedModel}
+      />
+
       {/* Delete Project Modal */}
-      {deleteModal.isOpen && deleteModal.project && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            style={{
-              backgroundColor: 'white',
-              borderRadius: '0.5rem',
-              padding: '1.5rem',
-              maxWidth: '28rem',
-              width: '100%',
-              margin: '0 1rem',
-              border: '1px solid rgb(229 231 235)'
-            }}
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-red-600 " fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 ">Delete Project</h3>
-                <p className="text-sm text-gray-500 ">This action cannot be undone</p>
-              </div>
-            </div>
-            
-            <p className="text-gray-700 mb-6">
-              Are you sure you want to delete <strong>&quot;{deleteModal.project.name}&quot;</strong>? 
-              This will permanently delete all project files and chat history.
-            </p>
-            
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={closeDeleteModal}
-                disabled={isDeleting}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={deleteProject}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-              >
-                {isDeleting ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete Project'
-                )}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+      <DeleteProjectModal
+        isOpen={deleteModal.isOpen}
+        projectName={deleteModal.project?.name ?? ''}
+        onClose={closeDeleteModal}
+        onConfirm={deleteProject}
+        isDeleting={isDeleting}
+      />
 
       {/* Toast Messages */}
       {toast && (
