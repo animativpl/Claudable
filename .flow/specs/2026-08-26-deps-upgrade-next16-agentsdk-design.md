@@ -33,10 +33,13 @@ MCP scope user, wydzielenie `CreateProjectModal`, Playwright w Dockerze,
 | 5 | Claude Agent SDK | **Bump do 0.3.246** | Wymienione z nazwy w zleceniu. Breaking changes trafiające wprost w kod integracyjny: `TodoWrite` usunięte (→ `TaskCreate`/`TaskUpdate`/...), `options.env` całkowicie zastępuje `process.env` zamiast mergować, MCP łączy się domyślnie asynchronicznie, `@anthropic-ai/sdk`/`@modelcontextprotocol/sdk` przeszły do `peerDependencies`. Dotyka świeżo skomitowanego `mcp-servers-loader.ts` i `claude-options.ts`/`claude.ts` — wymaga realnej weryfikacji, nie tylko bumpa numerka. |
 | 6 | Reszta zależności (`react`, `react-dom`, `zod`, `@types/*`, `vitest`, ...) | **Bump do najnowszych minor/patch w obecnym majorze** | Niskie ryzyko, bez osobnej decyzji. |
 | 7 | `engines.node` | **Podnieść floor do `>=20.9.0`** | Next 16 realnie wymaga tej wersji; obecny zapis `>=20.0.0` jest zbyt luźny. |
+| 8 | Tailwind CSS | **Pominięte w tym przebiegu** — bump tylko w obrębie 3.x (3.4.17→3.4.19) | Ten sam wzorzec co decyzja 2: 4.x to zmiana architektury (plugin PostCSS `tailwindcss`→`@tailwindcss/postcss`, autoprefixer wchodzi domyślnie, konfiguracja CSS-first `@theme` zamiast `tailwind.config.ts`), nie była wymieniona z nazwy, wysoki blast radius (cały UI). Osobna migracja później. |
+| 9 | ESLint, framer-motion, lucide-react, dotenv | **Bump do najnowszego majora** (eslint 9→10, framer-motion 11→13, lucide-react 0.x→1.x, dotenv 16→17) | Decyzja użytkownika po przedstawieniu ryzyka — w odróżnieniu od Prisma/Tailwind to zwykłe zależności aplikacji, nie architektura builda; niezgodności typów złapie `tsc --noEmit` w projekcie ze `strict: true`. |
 
 ## 3. Poza zakresem
 
 - Migracja Prisma 6→7 (decyzja 2) — osobny run, gdy będzie potrzebny.
+- Migracja Tailwind CSS 3→4 (decyzja 8) — osobny run, gdy będzie potrzebny.
 - Ocena merytoryczna zmian skomitowanych jako `89c16ed` (MCP scope user,
   `network_mode: host`, Playwright w Dockerze) — nie są przedmiotem tego
   zlecenia.
