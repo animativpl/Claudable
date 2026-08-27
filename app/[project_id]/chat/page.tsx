@@ -4,18 +4,18 @@ import { AnimatePresence } from 'framer-motion';
 import { MotionDiv, MotionH3, MotionP, MotionButton } from '@/lib/motion';
 import { useRouter, useSearchParams, useParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { FaCode, FaDesktop, FaMobileAlt, FaPlay, FaStop, FaSync, FaCog, FaFolder, FaFolderOpen, FaFile, FaFileCode, FaCss3Alt, FaHtml5, FaJs, FaReact, FaPython, FaDocker, FaGitAlt, FaMarkdown, FaDatabase, FaPhp, FaJava, FaRust, FaVuejs, FaLock, FaHome, FaChevronUp, FaChevronRight, FaChevronDown, FaArrowLeft, FaArrowRight, FaRedo } from 'react-icons/fa';
-import { SiTypescript, SiGo, SiRuby, SiSvelte, SiJson, SiYaml, SiCplusplus } from 'react-icons/si';
-import { VscJson } from 'react-icons/vsc';
+import { FaCode, FaDesktop, FaMobileAlt, FaPlay, FaStop, FaSync, FaCog, FaGitAlt, FaHome, FaChevronUp, FaArrowLeft, FaArrowRight, FaRedo } from 'react-icons/fa';
 import ChatLog, { type MessageHandlers } from '@/components/chat/ChatLog';
 import { ProjectSettings } from '@/components/settings/ProjectSettings';
 import ChatInput from '@/components/chat/ChatInput';
 import { ChatErrorBoundary } from '@/components/ErrorBoundary';
+import { TreeView, getFileIcon, type Entry } from '@/components/chat/TreeView';
 import { useUserRequests } from '@/hooks/useUserRequests';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
 import { randomId } from '@/lib/utils/random-id';
 import { toBrowsablePreviewUrl } from '@/lib/utils/preview-url';
+import { getFileLanguage, escapeHtml } from '@/lib/utils/file-display';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
 
@@ -24,7 +24,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 // Claude is the only agent, so its brand color is used unconditionally.
 const CLAUDE_BRAND_COLOR = '#DE7356';
 
-type Entry = { path: string; type: 'file'|'dir'; size?: number };
 type ProjectStatus = 'initializing' | 'active' | 'failed';
 
 type ModelOption = { id: string; name: string; available: boolean };
@@ -34,123 +33,6 @@ const CLAUDE_MODEL_OPTIONS: ModelOption[] = getModelDefinitionsForCli(null).map(
   name,
   available: true,
 }));
-
-// TreeView component for VSCode-style file explorer
-interface TreeViewProps {
-  entries: Entry[];
-  selectedFile: string;
-  expandedFolders: Set<string>;
-  folderContents: Map<string, Entry[]>;
-  onToggleFolder: (path: string) => void;
-  onSelectFile: (path: string) => void;
-  onLoadFolder: (path: string) => Promise<void>;
-  level: number;
-  parentPath?: string;
-  getFileIcon: (entry: Entry) => React.ReactElement;
-}
-
-function TreeView({ entries, selectedFile, expandedFolders, folderContents, onToggleFolder, onSelectFile, onLoadFolder, level, parentPath = '', getFileIcon }: TreeViewProps) {
-  // Ensure entries is an array
-  if (!entries || !Array.isArray(entries)) {
-    return null;
-  }
-  
-  // Group entries by directory
-  const sortedEntries = [...entries].sort((a, b) => {
-    // Directories first
-    if (a.type === 'dir' && b.type === 'file') return -1;
-    if (a.type === 'file' && b.type === 'dir') return 1;
-    // Then alphabetical
-    return a.path.localeCompare(b.path);
-  });
-
-  return (
-    <>
-      {sortedEntries.map((entry, index) => {
-        // entry.path should already be the full path from API
-        const fullPath = entry.path;
-        let entryKey =
-          fullPath && typeof fullPath === 'string' && fullPath.trim().length > 0
-            ? fullPath.trim()
-            : (entry as any)?.name && typeof (entry as any).name === 'string' && (entry as any).name.trim().length > 0
-            ? `${parentPath || 'root'}::__named_${(entry as any).name.trim()}`
-            : '';
-        if (!entryKey || entryKey.trim().length === 0) {
-          entryKey = `${parentPath || 'root'}::__entry_${level}_${index}_${entry.type}`;
-        }
-        const isExpanded = expandedFolders.has(fullPath);
-        const indent = level * 8;
-        
-        return (
-          <div key={entryKey}>
-            <div
-              className={`group flex items-center h-[22px] px-2 cursor-pointer ${
-                selectedFile === fullPath 
-                  ? 'bg-blue-100 ' 
-                  : 'hover:bg-gray-100 '
-              }`}
-              style={{ paddingLeft: `${8 + indent}px` }}
-              onClick={async () => {
-                if (entry.type === 'dir') {
-                  // Load folder contents if not already loaded
-                  if (!folderContents.has(fullPath)) {
-                    await onLoadFolder(fullPath);
-                  }
-                  onToggleFolder(fullPath);
-                } else {
-                  onSelectFile(fullPath);
-                }
-              }}
-            >
-              {/* Chevron for folders */}
-              <div className="w-4 flex items-center justify-center mr-0.5">
-                {entry.type === 'dir' && (
-                  isExpanded ? 
-                    <span className="w-2.5 h-2.5 text-gray-600 flex items-center justify-center"><FaChevronDown size={10} /></span> : 
-                    <span className="w-2.5 h-2.5 text-gray-600 flex items-center justify-center"><FaChevronRight size={10} /></span>
-                )}
-              </div>
-              
-              {/* Icon */}
-              <span className="w-4 h-4 flex items-center justify-center mr-1.5">
-                {entry.type === 'dir' ? (
-                  isExpanded ? 
-                    <span className="text-amber-600 w-4 h-4 flex items-center justify-center"><FaFolderOpen size={16} /></span> : 
-                    <span className="text-amber-600 w-4 h-4 flex items-center justify-center"><FaFolder size={16} /></span>
-                ) : (
-                  getFileIcon(entry)
-                )}
-              </span>
-              
-              {/* File/Folder name */}
-              <span className={`text-[13px] leading-[22px] ${
-                selectedFile === fullPath ? 'text-blue-700 ' : 'text-gray-700 '
-              }`} style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>
-                {level === 0 ? (entry.path.split('/').pop() || entry.path) : (entry.path.split('/').pop() || entry.path)}
-              </span>
-            </div>
-            
-            {/* Render children if expanded */}
-            {entry.type === 'dir' && isExpanded && folderContents.has(fullPath) && (
-              <TreeView
-                entries={folderContents.get(fullPath) || []}
-                selectedFile={selectedFile}
-                expandedFolders={expandedFolders}
-                folderContents={folderContents}
-                onToggleFolder={onToggleFolder}
-                onSelectFile={onSelectFile}
-                onLoadFolder={onLoadFolder}
-                level={level + 1}
-                parentPath={fullPath}
-                getFileIcon={getFileIcon}
-              />
-            )}
-          </div>
-        );
-      })}
-    </>
-  );
-}
 
 export default function ChatPage() {
   const params = useParams<{ project_id: string }>();
@@ -870,168 +752,6 @@ const persistProjectPreferences = useCallback(
       lineNumberRef.current.scrollTop = scrollTop;
     }
   }, [editedContent]);
-
-  // Get file extension for syntax highlighting
-  function getFileLanguage(path: string): string {
-    const ext = path.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'tsx':
-      case 'ts':
-        return 'typescript';
-      case 'jsx':
-      case 'js':
-      case 'mjs':
-        return 'javascript';
-      case 'css':
-        return 'css';
-      case 'scss':
-      case 'sass':
-        return 'scss';
-      case 'html':
-      case 'htm':
-        return 'html';
-      case 'json':
-        return 'json';
-      case 'md':
-      case 'markdown':
-        return 'markdown';
-      case 'py':
-        return 'python';
-      case 'sh':
-      case 'bash':
-        return 'bash';
-      case 'yaml':
-      case 'yml':
-        return 'yaml';
-      case 'xml':
-        return 'xml';
-      case 'sql':
-        return 'sql';
-      case 'php':
-        return 'php';
-      case 'java':
-        return 'java';
-      case 'c':
-        return 'c';
-      case 'cpp':
-      case 'cc':
-      case 'cxx':
-        return 'cpp';
-      case 'rs':
-        return 'rust';
-      case 'go':
-        return 'go';
-      case 'rb':
-        return 'ruby';
-      case 'vue':
-        return 'vue';
-      case 'svelte':
-        return 'svelte';
-      case 'dockerfile':
-        return 'dockerfile';
-      case 'toml':
-        return 'toml';
-      case 'ini':
-        return 'ini';
-      case 'conf':
-      case 'config':
-        return 'nginx';
-      default:
-        return 'plaintext';
-    }
-  }
-
-  function escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  // Get file icon based on type
-  function getFileIcon(entry: Entry): React.ReactElement {
-    if (entry.type === 'dir') {
-      return <span className="text-blue-500"><FaFolder size={16} /></span>;
-    }
-    
-    const ext = entry.path.split('.').pop()?.toLowerCase();
-    const filename = entry.path.split('/').pop()?.toLowerCase();
-    
-    // Special files
-    if (filename === 'package.json') return <span className="text-green-600"><VscJson size={16} /></span>;
-    if (filename === 'dockerfile') return <span className="text-blue-400"><FaDocker size={16} /></span>;
-    if (filename?.startsWith('.env')) return <span className="text-yellow-500"><FaLock size={16} /></span>;
-    if (filename === 'readme.md') return <span className="text-gray-600"><FaMarkdown size={16} /></span>;
-    if (filename?.includes('config')) return <span className="text-gray-500"><FaCog size={16} /></span>;
-    
-    switch (ext) {
-      case 'tsx':
-        return <span className="text-cyan-400"><FaReact size={16} /></span>;
-      case 'ts':
-        return <span className="text-blue-600"><SiTypescript size={16} /></span>;
-      case 'jsx':
-        return <span className="text-cyan-400"><FaReact size={16} /></span>;
-      case 'js':
-      case 'mjs':
-        return <span className="text-yellow-400"><FaJs size={16} /></span>;
-      case 'css':
-        return <span className="text-blue-500"><FaCss3Alt size={16} /></span>;
-      case 'scss':
-      case 'sass':
-        return <span className="text-pink-500"><FaCss3Alt size={16} /></span>;
-      case 'html':
-      case 'htm':
-        return <span className="text-orange-500"><FaHtml5 size={16} /></span>;
-      case 'json':
-        return <span className="text-yellow-600"><VscJson size={16} /></span>;
-      case 'md':
-      case 'markdown':
-        return <span className="text-gray-600"><FaMarkdown size={16} /></span>;
-      case 'py':
-        return <span className="text-blue-400"><FaPython size={16} /></span>;
-      case 'sh':
-      case 'bash':
-        return <span className="text-green-500"><FaFileCode size={16} /></span>;
-      case 'yaml':
-      case 'yml':
-        return <span className="text-red-500"><SiYaml size={16} /></span>;
-      case 'xml':
-        return <span className="text-orange-600"><FaFileCode size={16} /></span>;
-      case 'sql':
-        return <span className="text-blue-600"><FaDatabase size={16} /></span>;
-      case 'php':
-        return <span className="text-indigo-500"><FaPhp size={16} /></span>;
-      case 'java':
-        return <span className="text-red-600"><FaJava size={16} /></span>;
-      case 'c':
-        return <span className="text-blue-700"><FaFileCode size={16} /></span>;
-      case 'cpp':
-      case 'cc':
-      case 'cxx':
-        return <span className="text-blue-600"><SiCplusplus size={16} /></span>;
-      case 'rs':
-        return <span className="text-orange-700"><FaRust size={16} /></span>;
-      case 'go':
-        return <span className="text-cyan-500"><SiGo size={16} /></span>;
-      case 'rb':
-        return <span className="text-red-500"><SiRuby size={16} /></span>;
-      case 'vue':
-        return <span className="text-green-500"><FaVuejs size={16} /></span>;
-      case 'svelte':
-        return <span className="text-orange-600"><SiSvelte size={16} /></span>;
-      case 'dockerfile':
-        return <span className="text-blue-400"><FaDocker size={16} /></span>;
-      case 'toml':
-      case 'ini':
-      case 'conf':
-      case 'config':
-        return <span className="text-gray-500"><FaCog size={16} /></span>;
-      default:
-        return <span className="text-gray-400"><FaFile size={16} /></span>;
-    }
-  }
 
   // Ensure we only trigger dependency installation once per page lifecycle
   const installTriggeredRef = useRef(false);
