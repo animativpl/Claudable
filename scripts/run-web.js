@@ -143,7 +143,7 @@ async function startWebDevServer({
 
   const child = spawn(
     'npx',
-    ['next', 'dev', '--port', resolvedPort.toString(), ...passthrough],
+    ['next', 'dev', '--webpack', '--port', resolvedPort.toString(), ...passthrough],
     {
       cwd: rootDir,
       stdio,
