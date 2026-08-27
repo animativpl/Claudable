@@ -95,16 +95,18 @@ COPY --from=build --chown=node:node /app/prisma ./prisma
 # SDK agenta trace standalone bundluje do JavaScriptu, więc samego pakietu nie
 # kopiuje. Od Agent SDK 0.3 (zmierzone rozpakowaniem tarballa) SDK nie ma już
 # `cli.js` — resolvuje w runtime jeden z ośmiu platformowych
-# `optionalDependencies` (`@anthropic-ai/claude-agent-sdk-linux-x64` na tym
-# obrazie, ~236 MB rozpakowane) przez `createRequire(...).resolve(...)`. Bez
-# tego katalogu pierwsza instrukcja wysłana do agenta pada na "Native CLI
-# binary ... not found", czyli cała funkcja produktu, i to dopiero przy
-# pierwszym użyciu — start kontenera wygląda zdrowo.
+# `optionalDependencies` (nazwa pakietu zależy od architektury hosta budującego
+# obraz — bez `--platform` `docker build` używa architektury hosta; na tym
+# obrazie to `@anthropic-ai/claude-agent-sdk-linux-arm64`, ~236 MB
+# rozpakowane) przez `createRequire(...).resolve(...)`. Bez tego katalogu
+# pierwsza instrukcja wysłana do agenta pada na "Native CLI binary ... not
+# found", czyli cała funkcja produktu, i to dopiero przy pierwszym użyciu —
+# start kontenera wygląda zdrowo.
 #
 # Ten pakiet platformowy dzieli scope @anthropic-ai z głównym pakietem SDK,
 # więc poniższy COPY (niezmieniony od czasu, gdy kopiował tylko cli.js) go już
 # przenosi — zweryfikowane uruchomieniem obrazu (Task 5 Step 10 planu
-# aktualizacji zależności), nie założone.
+# aktualizacji zależności) dla architektury arm64 tego builda, nie założone.
 COPY --from=build --chown=node:node /app/node_modules/@anthropic-ai ./node_modules/@anthropic-ai
 
 # Poza /app, żeby nie mieszać się z `node_modules` z trace'u standalone —
