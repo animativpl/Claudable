@@ -132,25 +132,25 @@ to something accurate now that Electron is gone but the floor itself is unchange
 
 - [ ] **Step 3: Remove the "Desktop App (Electron)" section**
 
-Remove the whole section, including its heading and code block:
-```
-### Desktop App (Electron)
+Remove the whole section, from the `### Desktop App (Electron)` heading through the end of its bash code block (do NOT include this instruction's own illustrative block below in what you delete — it's just showing you what the target text looks like, reproduced here without a wrapping fence specifically so this plan document itself stays parseable by tooling):
 
-Build and run Claudable as a desktop application:
+> ### Desktop App (Electron)
+>
+> Build and run Claudable as a desktop application:
+>
+> ```bash
+> # Development mode
+> npm run dev:desktop
+>
+> # Build desktop app
+> npm run build:desktop
+>
+> # Package for specific platforms
+> npm run package:mac      # macOS
+> npm run package:win      # Windows
+> npm run package:linux    # Linux
+> ```
 
-```bash
-# Development mode
-npm run dev:desktop
-
-# Build desktop app
-npm run build:desktop
-
-# Package for specific platforms
-npm run package:mac      # macOS
-npm run package:win      # Windows
-npm run package:linux    # Linux
-```
-```
 Read the surrounding `## Setup` section before and after this removal to confirm the `### Additional Commands` section (which follows it) still reads coherently once this is gone — it should, since it's a separate, unrelated subsection.
 
 - [ ] **Step 4: Fix the Docker section's Node-version paragraph**
