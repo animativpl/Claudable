@@ -3,6 +3,15 @@ const nextConfig = {
   reactStrictMode: true,
   productionBrowserSourceMaps: false,
   output: 'standalone',
+  // `resolveProjectRoot()` (lib/utils/project-path.ts) builds project paths from
+  // `process.cwd()` plus a runtime-only project id, which file tracing can't
+  // resolve statically — it falls back to tracing the entire repo root into
+  // `.next/standalone` (verified via `du -sh .next/standalone` + a `find` for
+  // `.git`/`data`/`.env*`, task 10 of the cleanup audit). Exclude the
+  // repo-only directories/files that don't belong in the packaged output.
+  outputFileTracingExcludes: {
+    '/*': ['.git', '.git/**/*', 'data/**/*', '.flow/**/*', 'tests/**/*', '.env*'],
+  },
   // Disable critters optimizeCss to avoid missing module during build
   experimental: {
     optimizeCss: false,

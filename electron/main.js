@@ -13,7 +13,16 @@ let nextServerProcess = null;
 let productionUrl = null;
 let shuttingDown = false;
 
-const rootDir = path.join(__dirname, '..');
+// `.next/standalone` is spawned as a child process with itself as `cwd`
+// (see startProductionServer below). electron-builder packs `files` into
+// `app.asar` by default, but that's a virtual archive, not a real directory,
+// so `child_process.spawn` can't chdir into a path inside it (ENOTDIR).
+// `asarUnpack` in package.json mirrors `.next/standalone` to a real
+// `app.asar.unpacked` directory alongside the archive — use that mirror once
+// packaged, matching the plain on-disk layout used in development.
+const rootDir = app.isPackaged
+  ? path.join(process.resourcesPath, 'app.asar.unpacked')
+  : path.join(__dirname, '..');
 const standaloneDir = path.join(rootDir, '.next', 'standalone');
 const preloadPath = path.join(__dirname, 'preload.js');
 
@@ -108,6 +117,12 @@ async function startProductionServer() {
     NODE_ENV: 'production',
     PORT: String(port),
     NEXT_TELEMETRY_DISABLED: '1',
+    // `process.execPath` inside a packaged app is the Electron binary, not
+    // plain Node — without this, spawning it against `serverPath` tries to
+    // boot a second Electron app instance instead of just running the
+    // script, and it hangs (confirmed by running the packaged AppImage:
+    // no crash, no Next.js startup output, killed by an external timeout).
+    ELECTRON_RUN_AS_NODE: '1',
   };
 
   nextServerProcess = spawn(process.execPath, [serverPath], {

@@ -103,6 +103,9 @@
       }
     ],
     "asar": true,
+    "asarUnpack": [
+      ".next/standalone/**/*"
+    ],
     "directories": {
       "buildResources": "resources",
       "output": "dist"
