@@ -12,7 +12,7 @@
 
 **Design record:** `.flow/specs/2026-08-27-claudable-cleanup-audit-design.md`
 
-**Correction made while writing this plan, worth recording:** the audit suggested collapsing `components/settings/GlobalSettings.tsx`'s modal shell into the existing `SettingsModal` wrapper. Direct comparison shows these are not the same pattern — `SettingsModal` is a right-side slide-in panel (`ProjectSettings.tsx`'s style), `GlobalSettings.tsx` is a centered, `framer-motion`-animated tabbed dialog with a different header, sizing, and interaction model entirely. Forcing one into the other would be a visible design change, not a safe dedup. That merge is **dropped** from this plan; only the byte-identical GitHub SVG icon (genuinely duplicated, zero visual risk to extract) is in scope (Task 17).
+**Correction made while writing this plan, worth recording:** the audit suggested collapsing `components/settings/GlobalSettings.tsx`'s modal shell into the existing `SettingsModal` wrapper. Direct comparison shows these are not the same pattern — `SettingsModal` is a right-side slide-in panel (`ProjectSettings.tsx`'s style), `GlobalSettings.tsx` is a centered, `framer-motion`-animated tabbed dialog with a different header, sizing, and interaction model entirely. Forcing one into the other would be a visible design change, not a safe dedup. That merge is **dropped** from this plan; only the byte-identical GitHub SVG icon (genuinely duplicated, zero visual risk to extract) is in scope (Task 15).
 
 ## Global Constraints
 
@@ -28,7 +28,11 @@
 
 ## Phase 1 — Security
 
-### Task 1: Restore 127.0.0.1-only port binding
+### Task 1: Restore 127.0.0.1-only port binding — ⏸ PAUSED, do not start until unblocked
+
+**Do not implement this task yet.** Red-team review found that commit `89c16ed`'s own message describes "switch to host networking" as a deliberate change, not an accident — the design record's original characterization of this as a silent security regression was wrong. That same commit added user-scope MCP server loading and a `~/.figma-console-mcp` host mount; a locally-running MCP server would need host networking to reach `localhost` on the host machine, which is a concrete, plausible reason for the change. The user has been asked to confirm the actual reason before this task proceeds (as of this plan revision, their answer was "I need to check first" — not yet resolved). **Check `~/.claude/hooks/flow-state show` or ask the controller/user directly whether this task is unblocked before starting it.** If it's still unresolved when you reach this task in sequence, skip it and move to Task 2 — do not guess.
+
+Once unblocked, here is the task as originally scoped, for whichever direction the user confirms:
 
 **Files:**
 - Modify: `docker-compose.yml`
@@ -251,11 +255,15 @@ git commit -m "chore: remove dead frontend code (AuthContext, ToolResultMessage 
 **Interfaces:**
 - Consumes: nothing changes for live consumers — `types/shared/github.ts` (the one live file in `types/shared/`), `types/backend/{project,chat,files}.ts` (the three live files in `types/backend/`), and `types/chat.ts`'s `ChatMessage` export all keep working identically.
 
-Confirmed zero references anywhere in the repo (re-verified while writing this plan):
+Confirmed zero **path-string** references anywhere in the repo:
 ```bash
 grep -rn "types/server\|types/shared/chat\|types/shared/project\|types/shared/service\|types/backend/cli" --include="*.ts" --include="*.tsx" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow .
 ```
-returns nothing.
+returns nothing — **but this only checks path strings, not barrel-mediated symbol imports.** Red-team review caught one real one: `lib/services/cli/claude.ts:8` does `import type { ClaudeSession, ClaudeResponse } from '@/types/backend'` — both types are defined in `types/backend/cli.ts` (the file this task deletes) and re-exported through the `types/backend/index.ts` barrel. Re-verified: neither `ClaudeSession` nor `ClaudeResponse` is actually *used* anywhere else in `claude.ts` (the import itself is dead weight) — but the import statement would still fail to compile once `types/backend/cli.ts` is gone and the barrel no longer re-exports them, so it needs to be deleted, not left behind. Step 3 below now includes this. Before deleting anything in this task, re-grep at the **symbol** level, not just the path level:
+```bash
+grep -rn "ClaudeSession\|ClaudeResponse\|\bSessionType\b\|\bSessionStatus\b\|\bCLIType\b\|\bCLIModel\b\|\bCLIOption\b\|\bGlobalSettings\b\|\bToolUse\b" --include="*.ts" --include="*.tsx" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow . | grep -v "types/backend/cli.ts"
+```
+(these are every export `types/backend/cli.ts` defines — confirm which, if any, have real usages beyond the one now-known `claude.ts` case before proceeding).
 
 - [ ] **Step 1: Delete the whole `types/server/` directory**
 
@@ -280,8 +288,9 @@ to:
 export * from './github';
 ```
 
-- [ ] **Step 3: Delete the dead file in `types/backend/`, fix its barrel**
+- [ ] **Step 3: Delete the dead file in `types/backend/`, fix its barrel, remove the one real dangling import**
 
+Re-run the symbol-level grep above yourself first — the analysis while writing this plan found exactly one real hit (`lib/services/cli/claude.ts:8`), all other matches were an unrelated `GlobalSettings` React component/interface with the same name, or unrelated `activeClaudeSessionId` fields. Confirm that still holds, then:
 ```bash
 git rm types/backend/cli.ts
 ```
@@ -297,6 +306,10 @@ to:
 export * from './project';
 export * from './chat';
 export * from './files';
+```
+In `lib/services/cli/claude.ts`, delete this line entirely (both `ClaudeSession` and `ClaudeResponse` are imported but never actually referenced anywhere else in the file — confirmed by grep — so this isn't preserving a used type, just removing a now-broken dead import):
+```typescript
+import type { ClaudeSession, ClaudeResponse } from '@/types/backend';
 ```
 
 - [ ] **Step 4: Delete the orphaned `fernet` type declaration**
@@ -401,17 +414,19 @@ In the `exclude` array, remove `"external_Claudable"` — no file or directory b
 
 - [ ] **Step 2: Remove shadowed `.gitignore` entries**
 
-Remove these lines (both fully shadowed by broader existing rules — verify with `git check-ignore -v` before and after to confirm no behavior change):
+Remove these lines — two different reasons, not the same one:
 ```
 prisma/*.db
 prisma/*.db-journal
 prisma/*.db-wal
 ```
-(the database lives under `data/cc.db`, already covered by the `data/` rule) and:
+These are not shadowed by anything (`prisma/` and `data/` are different paths) — they're simply unreachable. `DATABASE_URL` (set by `scripts/setup-env.js:276`, `"file:../data/cc.db"`) puts the SQLite file at `data/cc.db`, and nothing in this repo has ever pointed it at `prisma/`. These three lines have never matched a real file.
 ```
 /data/projects/
 ```
-(already covered by the broader `data/` rule).
+This one genuinely *is* shadowed — the broader `data/` rule two lines above it (line 49, unanchored) already matches `/data/projects/` as a subpath, so this line is redundant with an existing rule rather than pointing at a dead path.
+
+Verify with `git check-ignore -v` before and after removing both to confirm no behavior change either way.
 
 - [ ] **Step 3: Verify**
 
@@ -483,14 +498,16 @@ only the plain GET/POST/PUT/DELETE routes, which are unaffected."
 
 ### Task 8: `lib/crypto.ts` — fail loud instead of silently rotating the encryption key
 
+**Revised after red-team review.** The original version of this task threw at *module scope* (as soon as `lib/crypto.ts` is imported). Verified this breaks `docker build`: `.dockerignore` excludes `.env`, and the Dockerfile's build stage (`COPY . . && RUN npx prisma generate && npm run build`) has no `ENCRYPTION_KEY` anywhere — it's only supplied at container *runtime* via `docker-compose.yml`. `next build` evaluates route handlers during page-data collection, and `lib/services/env.ts` (imported by the `/api/env/*` routes) imports `lib/crypto.ts` — so a module-scope throw would crash `docker build` while `npm run build` run locally (where `.env` **is** present) stays green, meaning this task's own gate can't see the break it would cause. **Fix: resolve the key lazily, inside `encrypt`/`decrypt`, not at module scope.**
+
 **Files:**
 - Modify: `lib/crypto.ts`
 - Test: `tests/lib/crypto.test.ts` (new)
 
 **Interfaces:**
-- Produces: `encrypt(text: string): string` and `decrypt(text: string): string` keep their exact signatures — only the module's key-resolution behavior changes (throws at import time if `ENCRYPTION_KEY` is unset, instead of silently generating a random one).
+- Produces: `encrypt(text: string): string` and `decrypt(text: string): string` keep their exact signatures — only the module's key-resolution behavior changes (throws when actually called if `ENCRYPTION_KEY` is unset, instead of silently generating a random one at import time).
 
-Per design decision 5: the Docker path already requires `ENCRYPTION_KEY` via `docker-compose.yml`'s `${ENCRYPTION_KEY:?...}` guard, and `scripts/setup-env.js` generates one for local dev — so this fallback never actually fires in normal use today. Making it throw instead of silently rotating keys closes a footgun without changing real-world behavior.
+Per design decision 5: the Docker *runtime* path already requires `ENCRYPTION_KEY` via `docker-compose.yml`'s `${ENCRYPTION_KEY:?...}` guard, and `scripts/setup-env.js` generates one for local dev — so this fallback never actually fires when the app is actually serving requests. Making it throw instead of silently rotating keys closes a footgun without changing real-world runtime behavior; resolving it lazily instead of at import time is what keeps the Docker *build* stage (which legitimately has no `ENCRYPTION_KEY` and shouldn't need one, since it never calls `encrypt`/`decrypt`) working.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -510,9 +527,15 @@ describe('lib/crypto — ENCRYPTION_KEY handling', () => {
     else process.env.ENCRYPTION_KEY = originalKey;
   });
 
-  it('rzuca błędem przy imporcie, gdy ENCRYPTION_KEY nie jest ustawiony', async () => {
+  it('nie rzuca przy samym imporcie, gdy ENCRYPTION_KEY nie jest ustawiony', async () => {
     delete process.env.ENCRYPTION_KEY;
-    await expect(import('@/lib/crypto')).rejects.toThrow(/ENCRYPTION_KEY/);
+    await expect(import('@/lib/crypto')).resolves.toBeDefined();
+  });
+
+  it('rzuca dopiero przy realnym użyciu encrypt/decrypt, gdy klucza brak', async () => {
+    delete process.env.ENCRYPTION_KEY;
+    const { encrypt } = await import('@/lib/crypto');
+    expect(() => encrypt('x')).toThrow(/ENCRYPTION_KEY/);
   });
 
   it('szyfruje i odszyfrowuje poprawnie, gdy ENCRYPTION_KEY jest ustawiony', async () => {
@@ -524,14 +547,14 @@ describe('lib/crypto — ENCRYPTION_KEY handling', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify the first case fails**
+- [ ] **Step 2: Run the test to verify the second case fails**
 
 ```bash
 npx vitest run tests/lib/crypto.test.ts
 ```
-Expected: the first test FAILS (import does not throw — the module currently generates a random key instead), the second test PASSES already.
+Expected: the first test PASSES already (import never throws today — it silently generates a key instead); the second FAILS (`encrypt('x')` today succeeds with a random key instead of throwing); the third PASSES already.
 
-- [ ] **Step 3: Make the fallback throw instead of silently generating a key**
+- [ ] **Step 3: Resolve the key lazily instead of at module scope**
 
 In `lib/crypto.ts`, change:
 ```typescript
@@ -539,62 +562,108 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toSt
 ```
 to:
 ```typescript
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
-if (!ENCRYPTION_KEY) {
-  throw new Error(
-    'ENCRYPTION_KEY is not set. Every encrypted EnvVar/ServiceToken becomes ' +
-    'undecryptable if this module silently generates a new key on each ' +
-    'process start -- set ENCRYPTION_KEY explicitly instead (scripts/setup-env.js ' +
-    'generates one for local dev; the Docker path requires it via docker-compose.yml).'
-  );
+function requireEncryptionKey(): string {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error(
+      'ENCRYPTION_KEY is not set. Every encrypted EnvVar/ServiceToken becomes ' +
+      'undecryptable if this module silently generates a new key on each ' +
+      'process start -- set ENCRYPTION_KEY explicitly instead (scripts/setup-env.js ' +
+      'generates one for local dev; the Docker runtime path requires it via ' +
+      "docker-compose.yml). This is checked lazily, not at import time, so a build " +
+      'step that never calls encrypt/decrypt (e.g. `docker build`, which has no ' +
+      'ENCRYPTION_KEY available) is unaffected.'
+    );
+  }
+  return key;
 }
 ```
-(`ENCRYPTION_KEY` is now typed `string`, not `string | undefined`, past the guard — no other line in the file needs to change.)
+Then update `encrypt` and `decrypt` to call `requireEncryptionKey()` instead of referencing the old module-scope `ENCRYPTION_KEY` constant:
+```typescript
+export function encrypt(text: string): string {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(
+    ALGORITHM,
+    Buffer.from(requireEncryptionKey().slice(0, 64), 'hex'),
+    iv
+  );
+  // ... rest unchanged
+```
+```typescript
+export function decrypt(text: string): string {
+  const parts = text.split(':');
+  const iv = Buffer.from(parts.shift()!, 'hex');
+  const encryptedText = parts.join(':');
+
+  const decipher = crypto.createDecipheriv(
+    ALGORITHM,
+    Buffer.from(requireEncryptionKey().slice(0, 64), 'hex'),
+    iv
+  );
+  // ... rest unchanged
+```
+(Only the `Buffer.from(...)` lines' key source changes — the rest of both functions' bodies stay exactly as they are today.)
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 ```bash
 npx vitest run tests/lib/crypto.test.ts
 ```
-Expected: both PASS.
+Expected: all three PASS.
 
-- [ ] **Step 5: Run the full gate**
+- [ ] **Step 5: Run the full gate, plus a build-time sanity check that specifically simulates the Docker build's missing-key condition**
 
 ```bash
-npm run type-check && npm test && npm run lint && npm run build
+npm run type-check && npm test && npm run lint
+env -u ENCRYPTION_KEY npm run build
 ```
-Expected: all four PASS. If any existing test or the dev-server startup path relied on the silent-fallback behavior (unlikely, but verify), it will show up here as a new failure — read it and fix the actual gap in test/dev setup rather than reverting the throw.
+Expected: `type-check`/`test`/`lint` PASS; the `env -u ENCRYPTION_KEY npm run build` line (running the build with `ENCRYPTION_KEY` explicitly unset, simulating the Docker build stage) must also succeed — this is the check that would have caught the original module-scope-throw version of this task. If it fails, the lazy-resolution fix in Step 3 didn't fully move the key access out of module-evaluation time; find the remaining eager reference and fix it before proceeding.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Fix the README section this task makes inaccurate**
+
+`README.md:112-118` currently documents the *old* fallback behavior as fact: *"An empty value would not stop the app — `lib/crypto.ts` falls back to a random in-memory key, a different one on every container start, so the first restart would leave every stored service token and encrypted env var undecryptable."* After Step 3, this is no longer true — the app still starts fine with an empty key (that part stays accurate), but it now throws when `encrypt`/`decrypt` is actually called instead of silently generating a key. Change the sentence to:
+```
+  empty value would not stop the app at startup — but `lib/crypto.ts` now
+  throws the first time it's actually asked to encrypt or decrypt anything
+  (e.g. saving a service token or env var), rather than silently generating
+  a new random key on every container start the way it used to.
+```
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/crypto.ts tests/lib/crypto.test.ts
-git commit -m "fix: throw instead of silently rotating the encryption key when ENCRYPTION_KEY is unset
+git add lib/crypto.ts tests/lib/crypto.test.ts README.md
+git commit -m "fix: throw on use, not on import, when ENCRYPTION_KEY is unset
 
 The prior fallback (crypto.randomBytes(32)) generated a new, different key
 on every process start with no warning -- every existing encrypted EnvVar/
-ServiceToken becomes silently undecryptable after a restart. Both real
-paths (Docker via docker-compose.yml's :? guard, local dev via
-scripts/setup-env.js) already ensure the var is set, so this is not a
-behavior change in practice, only in the previously-unguarded case."
+ServiceToken becomes silently undecryptable after a restart. Resolving the
+key lazily inside encrypt/decrypt (rather than throwing at module-import
+time) keeps the Docker build stage working -- it has no ENCRYPTION_KEY
+available and never calls encrypt/decrypt, only the runtime container does,
+where docker-compose.yml's :? guard already requires the var."
 ```
 
 ---
 
-### Task 9: Prisma migration — remove 3 dead models and 7 orphaned columns, remove the dead session-polling code
+### Task 9: Prisma migration — remove 2 dead models and 6 orphaned columns; remove the dead session-detection routes and polling code
+
+**Revised after red-team review found the original scope was wrong.** The original version of this task also dropped the `Session` model and `Message.sessionId`/`parentMessageId`. Investigation (done in response to the finding, not guessed) showed that's a different situation from `Commit`/`ToolUsage`: the `Session` **table** is confirmed always empty (zero `prisma.session.create`/`update`/`upsert` calls anywhere — only two `findFirst` reads, in `lib/services/chat-sessions.ts`), so the active-session-detection *feature* is genuinely dead, same as originally found. But `Message.sessionId` the **column** is a separate thing: it has a real writer (`app/api/chat/[project_id]/messages/route.ts:102-121` accepts it from the request body) and real readers (`lib/services/message.ts`'s `mapPrismaMessage`, `lib/serializers/chat.ts`'s `serializeMessage`/`createRealtimeMessage`, and `components/chat/ChatLog.tsx`'s `buildToolMessageKey` dedup-key builder). The real agent flow (`lib/services/cli/claude.ts`) deliberately never populates it — there's an explicit comment at line 1055 saying so: *"sessionId is Session table foreign key, so don't store Claude SDK session ID / Claude SDK session ID is stored in project.activeClaudeSessionId"* — so in practice it's always `null` for real product messages and never affects the dedup key (which skips null parts). But it's not the zero-impact deletion the original plan assumed either: dropping the column means updating 4 files' worth of pass-through plumbing, and deciding whether to also touch `Message.parentMessageId` (same situation — "Thread support", schema-only, never written by `createMessage`, but still read/passed-through in the same 4 places). That's a real, separate decision, not a schema drop to bundle into a broad dead-code migration. **This task now leaves `model Session`, `Message.sessionId`, and `Message.parentMessageId` untouched.** Removing them is future work with its own task, if wanted.
+
+What stays in scope, because it was never challenged and doesn't touch any of that live plumbing: `Commit` and `ToolUsage` (fully dead — zero `prisma.commit.*`/`prisma.toolUsage.*` calls anywhere, re-verified), `Message.durationMs`/`tokenCount`/`costUsd`/`commitSha` (re-verified zero field-level references anywhere in the codebase — unlike `sessionId`/`parentMessageId`, nothing reads or writes these four at all), `ProjectServiceConnection.lastSyncAt` (re-verified zero references), and `Project.settings` (re-verified: exactly one write site, `app/api/projects/[project_id]/route.ts:73`'s `settings: body.settings`, and zero reads anywhere — a write with no reader is inert, unlike `sessionId`'s situation). The two session-detection API routes and `ChatLog.tsx`'s dead polling code stay in scope too — they're dead regardless of what happens to the `Session` model's schema, since the table they query is confirmed always empty.
 
 **Files:**
 - Modify: `prisma/schema.prisma`
+- Modify: `app/api/projects/[project_id]/route.ts`
 - Create: a new Prisma migration (via `prisma migrate dev`)
 - Delete: `app/api/chat/[project_id]/active-session/route.ts`
 - Delete: `app/api/chat/[project_id]/sessions/[session_id]/status/route.ts`
+- Delete: `lib/services/chat-sessions.ts`
 - Modify: `components/chat/ChatLog.tsx`
 
-**Interfaces:** None external — nothing outside these files reads the removed models/columns/routes (confirmed by the audit's project-wide `prisma.*` accessor grep).
+**Interfaces:** None external.
 
-Per design decisions 3 and 7, bundled into one migration since they touch the same file: the `Session` model (write-orphaned — zero `create`/`update`/`upsert` calls anywhere, both its routes always 404), `Commit` and `ToolUsage` (fully dead, zero `prisma.commit.*`/`prisma.toolUsage.*` calls), and orphaned columns `Message.durationMs`/`tokenCount`/`costUsd`/`commitSha`/`parentMessageId`, `ProjectServiceConnection.lastSyncAt`, `Project.settings`.
-
-**Not touched** (explicitly out of scope per the design record): `Message.cliSource` and `UserRequest.cliPreference` stay, even though always `'claude'` now.
+**Not touched:** `model Session`, `Message.sessionId`, `Message.parentMessageId`, `Message.cliSource`, `UserRequest.cliPreference` all stay in the schema exactly as they are.
 
 - [ ] **Step 1: Back up the database before migrating**
 
@@ -605,9 +674,7 @@ Expected: exits 0, prints where the backup landed (matches the precedent in `.fl
 
 - [ ] **Step 2: Edit the schema**
 
-In `prisma/schema.prisma`:
-
-Remove the `sessions Session[]` relation and `commits Commit[]`/`toolUsages ToolUsage[]` relations from `model Project`, and remove `settings String?` (the "Settings (JSON)" field):
+In `prisma/schema.prisma`, remove the `commits Commit[]`/`toolUsages ToolUsage[]` relations from `model Project` (keep `sessions Session[]`), and remove `settings String?` (the "Settings (JSON)" field):
 ```prisma
   // Settings (JSON)
   settings    String? // JSON string for additional settings
@@ -628,20 +695,14 @@ Remove the `sessions Session[]` relation and `commits Commit[]`/`toolUsages Tool
 ```prisma
   // Relations
   messages              Message[]
+  sessions              Session[]
   envVars               EnvVar[]
   serviceConnections    ProjectServiceConnection[]
   userRequests          UserRequest[]
 ```
 
-In `model Message`, remove the "Thread support", "Session" (the `sessionId`/relation, not `conversationId`), "Performance tracking", and "Git integration" blocks:
+In `model Message`, remove only the "Performance tracking" and "Git integration" blocks — leave "Thread support" (`parentMessageId`) and "Session" (`sessionId`/`conversationId`) exactly as they are:
 ```prisma
-  // Thread support
-  parentMessageId String? @map("parent_message_id")
-
-  // Session
-  sessionId      String? @map("session_id")
-  conversationId String? @map("conversation_id")
-
   // Performance tracking
   durationMs Int? @map("duration_ms")
   tokenCount Int? @map("token_count")
@@ -650,41 +711,50 @@ In `model Message`, remove the "Thread support", "Session" (the `sessionId`/rela
   // Git integration
   commitSha String? @map("commit_sha")
 ```
-→
-```prisma
-  // Session
-  conversationId String? @map("conversation_id")
-```
-(keep `conversationId` — unrelated to the dead `Session` model, still used for client-server message matching). Then remove the `session Session? @relation(...)` line, the `toolUsages ToolUsage[]` line, and `@@index([sessionId])` from the same model.
+→ delete this block entirely. Also remove the `toolUsages ToolUsage[]` relation line from `model Message` (keep the `session Session? @relation(...)` line and `@@index([sessionId])` — both stay).
 
-Delete `model Session` (the whole block, "Session info" through `@@map("sessions")`), `model Commit` (the whole block), and `model ToolUsage` (the whole block) entirely.
+Delete `model Commit` (the whole block) and `model ToolUsage` (the whole block) entirely. **Do not delete `model Session`.**
 
 In `model ProjectServiceConnection`, remove:
 ```prisma
   lastSyncAt  DateTime? @map("last_sync_at")
 ```
 
-- [ ] **Step 3: Generate and apply the migration**
+- [ ] **Step 3: Remove the now-dead `Project.settings` write site**
 
-```bash
-npx prisma migrate dev --name remove_dead_session_commit_toolusage_and_orphaned_columns
-```
-Expected: exits 0, prints the generated SQL summary (dropped tables `sessions`, `commits`, `tool_usages`; dropped columns on `messages`/`project_service_connections`/`projects`). Read the generated migration file in `prisma/migrations/` to confirm it matches — SQLite migrations for column drops in Prisma typically recreate the table; confirm no unexpected data-loss beyond the intended dropped columns.
+In `app/api/projects/[project_id]/route.ts`, remove the `settings: body.settings` line (line 73 as of this audit — re-verify) from whatever update-data object it's part of, since the column it wrote to no longer exists.
 
-- [ ] **Step 4: Regenerate the Prisma client**
+- [ ] **Step 4: Type-check *before* migrating**
 
 ```bash
 npm run prisma:generate
+npm run type-check
 ```
+Expected: PASS. Do this *before* `prisma migrate dev`, not after — a schema edit plus `prisma generate` is enough to catch every stale reference to a removed field via the TypeScript compiler, without needing to have already applied a destructive migration to find out. If this fails, you missed a caller; find and fix it here, before Step 5 touches the actual database.
 
-- [ ] **Step 5: Remove the two dead session routes**
+- [ ] **Step 5: Generate and apply the migration**
+
+```bash
+npx prisma migrate dev --name remove_dead_commit_toolusage_and_orphaned_columns
+```
+Expected: exits 0, prints the generated SQL summary (dropped tables `commits`, `tool_usages`; dropped columns on `messages`/`project_service_connections`/`projects` — `sessions` table and `messages.session_id`/`messages.parent_message_id` are **not** touched). Read the generated migration file in `prisma/migrations/` to confirm it matches exactly this and nothing more.
+
+- [ ] **Step 6: Remove the two dead session-detection routes and their service file**
 
 ```bash
 git rm app/api/chat/\[project_id\]/active-session/route.ts
 git rm app/api/chat/\[project_id\]/sessions/\[session_id\]/status/route.ts
 ```
+Re-confirm `lib/services/chat-sessions.ts` (`getActiveSession`, `getSessionById`) has no other callers, then delete it too:
+```bash
+grep -rn "chat-sessions" --include="*.ts" --include="*.tsx" -I --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude-dir=.flow .
+```
+Expected: only the two route files you just deleted. Then:
+```bash
+git rm lib/services/chat-sessions.ts
+```
 
-- [ ] **Step 6: Remove the dead session-polling code in `ChatLog.tsx`**
+- [ ] **Step 7: Remove the dead session-polling code in `ChatLog.tsx`**
 
 In `components/chat/ChatLog.tsx`:
 1. Delete `startSessionPolling` (the `useCallback` starting `// Poll session status periodically`) and `checkActiveSession` (the `useCallback` starting `// Check for active session on component mount`) in full.
@@ -723,26 +793,30 @@ In `components/chat/ChatLog.tsx`:
    ```
 3. Delete the `sessionPollRef` declaration (`const sessionPollRef = useRef<NodeJS.Timeout | null>(null);`).
 
-**Do not remove** the `activeSession` state, `ActiveSession` interface, `setActiveSession`, or the `onSessionStatusChange` prop/callback plumbing — `handleRealtimeStatus` (a real, live SSE-status handler, unrelated to the dead polling) still calls `setActiveSession(null)` and `onSessionStatusChange?.(false)` when a real-time status update reports `'completed'`. This is genuinely live code, not part of what's being removed. This task's removal is behavior-preserving in practice: `checkActiveSession` always hit its "no active session" branch anyway, since the endpoint it called always 404'd (confirmed by the Prisma audit before this task existed) — so `onSessionStatusChange(true)` was already never actually reachable in the current, broken state.
+**Do not remove** the `activeSession` state, `ActiveSession` interface, `setActiveSession`, or the `onSessionStatusChange` prop/callback plumbing — `handleRealtimeStatus` (a real, live SSE-status handler, unrelated to the dead polling) still calls `setActiveSession(null)` and `onSessionStatusChange?.(false)` when a real-time status update reports `'completed'`. This is genuinely live code, not part of what's being removed. This step's removal is behavior-preserving in practice: `checkActiveSession` always hit its "no active session" branch anyway, since the `Session` table it queried via the now-deleted routes is confirmed always empty — so `onSessionStatusChange(true)` was already never actually reachable in the current, broken state.
 
-- [ ] **Step 7: Verify**
+- [ ] **Step 8: Full verify**
 
 ```bash
 npm run type-check && npm test && npm run lint && npm run build
 ```
-Expected: all four PASS. A `type-check` failure referencing `Session`/`Commit`/`ToolUsage`/the removed columns means something outside this task's file list still reads them — re-grep (`grep -rn "prisma.session\.\|prisma.commit\.\|prisma.toolUsage\." ...`) to find the real caller before assuming the audit's "zero callers" claim was wrong; if it genuinely was, stop and report rather than guessing a fix.
+Expected: all four PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
-git commit -m "feat: drop dead Session/Commit/ToolUsage Prisma models and 7 orphaned columns
+git commit -m "feat: drop dead Commit/ToolUsage Prisma models and 6 orphaned columns, remove dead session-detection routes
 
-Session was write-orphaned (zero create/update/upsert anywhere -- both its
-routes always 404'd, and the ChatLog.tsx polling built on it never
-observed a real session). Commit and ToolUsage were fully unused. Real
-session tracking already happens via Project.activeClaudeSessionId.
-data/cc.db backed up before migrating (npm run db:backup)."
+Commit and ToolUsage were fully unused. Message.durationMs/tokenCount/
+costUsd/commitSha, ProjectServiceConnection.lastSyncAt, and Project.settings
+had zero readers. The active-session routes and ChatLog.tsx polling built
+on the Session table are dead too -- that table is confirmed to have zero
+create/update/upsert calls anywhere. The Session model itself and
+Message.sessionId/parentMessageId are deliberately NOT touched here --
+they have real (if narrow) pass-through plumbing that needs its own
+dedicated decision, not a bundled schema drop. data/cc.db backed up
+before migrating (npm run db:backup)."
 ```
 
 ---
@@ -823,34 +897,55 @@ git commit -m "fix: <describe the specific confirmed desktop-packaging problem a
 
 `lib/services/file-browser.ts`'s local `resolveSafePath` reimplements the exact same traversal check as the canonical, tested `resolveSafeProjectPath` — but async, untested, and with one extra `fs.access(base)` existence check that's actually redundant (every call site immediately follows with an `fs.stat` that already handles "doesn't exist" with a proper `FileBrowserError`).
 
-- [ ] **Step 1: Write the failing test proving the switch preserves behavior**
+**Real, minor behavior change this introduces:** today, when the project's base directory itself does not exist, `resolveSafePath` throws `FileBrowserError('Base path does not exist', 400)` immediately, before any traversal check runs. `resolveSafeProjectPath` does no existence check at all (it's pure path arithmetic — see `lib/utils/project-path.ts`), so after this change that same missing-base case instead falls through to the call site's subsequent `fs.stat`, which throws its own `FileBrowserError('... not found', 404)`. Both are still errors, both are still `FileBrowserError`, but the status code and message change (400→404) for that one edge case (a project whose stored `repoPath` points at a directory that no longer exists). This is accepted as-is — 404 is arguably the more correct code for "directory doesn't exist" anyway — not silently preserved with extra logic. Do not add back the `fs.access` check to avoid this; that would defeat the point of routing through the canonical, untested-duplicate-free implementation.
+
+- [ ] **Step 1: Write the failing test proving the switch preserves the traversal-rejection behavior**
+
+The test must exercise the traversal-rejection branch specifically, through a base directory that actually exists on disk — not the base-missing branch, which today also throws a 400 `FileBrowserError` and would make the assertion pass for the wrong reason (indistinguishable from a genuine traversal rejection since both throw the same error type).
 
 Create `tests/services/file-browser-path-traversal.test.ts`:
 ```typescript
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
+
+let projectDir: string;
 
 vi.mock('@/lib/services/project', () => ({
-  getProjectById: vi.fn(async (id: string) => ({ id, repoPath: null })),
+  getProjectById: vi.fn(async (id: string) => ({ id, repoPath: projectDir })),
 }));
 
 import { listProjectDirectory, FileBrowserError } from '@/lib/services/file-browser';
 
 describe('file-browser path traversal guard', () => {
-  it('odrzuca próbę wyjścia poza katalog projektu', async () => {
+  beforeEach(async () => {
+    projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'file-browser-test-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(projectDir, { recursive: true, force: true });
+  });
+
+  it('odrzuca próbę wyjścia poza katalog projektu, gdy katalog bazowy realnie istnieje', async () => {
     await expect(
       listProjectDirectory('proj-1', '../../../../etc')
     ).rejects.toThrow(FileBrowserError);
   });
+
+  it('akceptuje ścieżkę wewnątrz katalogu projektu', async () => {
+    await expect(listProjectDirectory('proj-1', '.')).resolves.toBeDefined();
+  });
 });
 ```
-(This test exercises the guard through the public API rather than the private `resolveSafePath`, since that function is not exported — matching how the rest of this file's tests, if any, would need to work. If `getProjectById`'s real shape differs from this mock in a way that breaks the test for an unrelated reason, adjust the mock to match the real `Project` shape, not the guard logic being tested.)
+`repoPath` is set to a real temp directory (absolute path), so `resolveProjectRoot` (in `lib/utils/project-path.ts`) uses it directly instead of falling back to `PROJECTS_DIR_ABSOLUTE` — this guarantees the base directory genuinely exists, so the first test's rejection can only come from the traversal check itself, not a missing-base short-circuit. The second test is a minimal sanity check that the swap doesn't also break the non-attack path. (This test exercises the guard through the public API rather than the private `resolveSafePath`, since that function is not exported — matching how the rest of this file's tests, if any, would need to work. If `getProjectById`'s real shape differs from this mock in a way that breaks the test for an unrelated reason, adjust the mock to match the real `Project` shape, not the guard logic being tested.)
 
 - [ ] **Step 2: Run the test to verify it fails or passes for the wrong reason**
 
 ```bash
 npx vitest run tests/services/file-browser-path-traversal.test.ts
 ```
-Expected: this specific test likely already PASSES against the current, untested `resolveSafePath` (it does implement the same check) — that's fine, this test's job is to survive Step 3's refactor unchanged, proving the switch is behavior-preserving, not to prove today's code is broken.
+Expected: both tests already PASS against the current, untested `resolveSafePath` (it does implement the same check) — that's fine, this test's job is to survive Step 3's refactor unchanged, proving the switch is behavior-preserving for both the attack path and the happy path, not to prove today's code is broken.
 
 - [ ] **Step 3: Route `resolveSafePath` through the canonical guard**
 
@@ -921,41 +1016,43 @@ the canonical guard which has a dedicated attack-vector test suite."
 
 ---
 
-### Task 12: Fix `TodoWrite` mislabeling and the Task-tool name-as-path bug, unify with the duplicate `ChatLog.tsx` copy, extract ChatLog.tsx's stranded pure logic
+### Task 12: Fix `TodoWrite` mislabeling and the Task-tool name-as-path bug via a shared leaf module
+
+**Substantially revised after red-team review found two problems with the original version.** First (blocking): the original Step 5 had `ChatLog.tsx` — a `"use client"` component — import `TOOL_NAME_ACTION_MAP`/`inferActionFromToolName` from `lib/services/cli/claude.ts`, which imports the Agent SDK, `fs/promises`, and Prisma-backed services. No component in this codebase imports anything from `lib/services` today; doing so from a client component either fails to bundle or ships server code (including `fs/promises`) to the browser. Second (serious): `claude.ts` and `ChatLog.tsx` each independently duplicate **four** things — `TOOL_NAME_ACTION_MAP`, `normalizeAction`, `inferActionFromToolName`, `extractPathFromInput` (plus `pickFirstString`, which `extractPathFromInput` calls) — not just the one map. The original plan only patched `claude.ts`'s copies, leaving both bugs live on `ChatLog.tsx`'s copy, which is the one that actually renders what the user sees.
+
+**Fix: put all five in a new leaf module with zero imports, and have both `claude.ts` and `ChatLog.tsx` import from it — never from each other.** This fixes both bugs exactly once, on both the server dispatch path and the client rendering path, and never puts server-only code in a client bundle.
 
 **Files:**
+- Create: `lib/tool-actions.ts`
 - Modify: `lib/services/cli/claude.ts`
 - Modify: `components/chat/ChatLog.tsx`
-- Create: `lib/serializers/client/tool-messages.ts`
-- Test: `tests/cli/claude-tool-actions.test.ts` (extend existing)
-- Test: `tests/serializers/tool-messages.test.ts` (new)
+- Test: `tests/lib/tool-actions.test.ts` (new — replaces `tests/cli/claude-tool-actions.test.ts` from the prior dependency-upgrade run, since the map it tests is moving)
 
 **Interfaces:**
-- Produces: `lib/serializers/client/tool-messages.ts` exports `pickFirstString`, `extractPathFromInput`, `extractToolCallId`, `parseToolPlaceholder`, `stripToolPlaceholderLines`, `createToolMessageFromPlaceholder`, `expandMessageWithToolPlaceholder`, `expandMessagesList`, `hashString`, `buildToolMessageKey`, `metadataEquals`, `areMessagesEqual`, `mergeMetadataObjects`, `mergeMessageRecord`, `integrateMessages`, `deriveToolInfoFromMetadata`, `processToolContent` — same names and signatures as their current module-scope definitions in `ChatLog.tsx`.
-- `lib/services/cli/claude.ts` continues to export `TOOL_NAME_ACTION_MAP` and `inferActionFromToolName` (already exported from the prior dependency-upgrade work) — `ChatLog.tsx` will import these instead of maintaining its own copy.
+- Produces: `lib/tool-actions.ts` exports `type ToolAction`, `TOOL_NAME_ACTION_MAP: Record<string, ToolAction>`, `normalizeAction(value: unknown): ToolAction | undefined`, `inferActionFromToolName(toolName: unknown): ToolAction | undefined`, `pickFirstString(value: unknown): string | undefined`, `extractPathFromInput(input: unknown, action?: ToolAction): string | undefined` — same signatures as the current duplicated copies in both files. This module must have **zero imports** — verify this once written, since that's what guarantees it's safe for a client component to pull in.
 
-This is the single largest task in this plan. It does three things together because they're entangled in the same code:
+- [ ] **Step 1: Read both current copies in full, confirm they're still byte-identical**
 
-1. **Fixes two real bugs in `lib/services/cli/claude.ts`** (found by re-auditing the Agent SDK integration against the actual installed SDK): `normalizeAction`'s substring fallback matches `"todowrite"` against `includes('write')` *before* it would ever reach a `todo`-specific branch, mislabeling the `TodoWrite` tool as `'Created'` instead of `'Generated'`. And `extractPathFromInput`'s candidate-key list includes `'name'`, which misreads the `Task` tool's `name` field (the spawned subagent's name) as if it were a file path.
-2. **Extracts `ChatLog.tsx`'s ~960 lines of pure, non-React logic** (lines 12-975 as of this audit — re-verify current range) into a new `lib/serializers/client/tool-messages.ts`, since none of it touches React state or JSX.
-3. **Resolves the tracked `TOOL_NAME_ACTION_MAP` duplication**: once `ChatLog.tsx` no longer needs its own copy for other reasons, it imports `TOOL_NAME_ACTION_MAP`/`inferActionFromToolName` directly from `lib/services/cli/claude.ts` instead of maintaining a second, independently-drifting one.
-
-Doing these separately would mean touching the same ~1000 lines of `ChatLog.tsx` three times with three different reviewers reasoning about a half-migrated file in between — right-sized as one task per the plan's own Task Right-Sizing rule.
-
-- [ ] **Step 1: Write the failing tests for the two bug fixes**
-
-Add to `tests/cli/claude-tool-actions.test.ts` (the existing test file from the dependency-upgrade run):
-```typescript
-  it('mapuje TodoWrite na Generated, nie Created', () => {
-    expect(TOOL_NAME_ACTION_MAP['todowrite']).toBe('Generated');
-  });
+```bash
+diff <(sed -n '/^type ToolAction/,/^const extractPathFromInput/p' lib/services/cli/claude.ts) <(sed -n '/^type ToolAction/,/^const extractPathFromInput/p' components/chat/ChatLog.tsx)
 ```
-Create `tests/services/extract-path-from-input.test.ts` (importing whatever the real exported name is — check `lib/services/cli/claude.ts` for whether `extractPathFromInput` is already exported; if not, export it the same way `TOOL_NAME_ACTION_MAP` was exported in the prior dependency-upgrade run):
+(This is an approximate range-diff to sanity-check before committing to the exact extraction — read both files' actual current line ranges yourself rather than trusting this one command's output blindly; the two copies were confirmed byte-identical except for the `export` keyword as of this plan's writing, but re-confirm.)
+
+- [ ] **Step 2: Write the failing tests for the two bug fixes, against the not-yet-created module**
+
+Create `tests/lib/tool-actions.test.ts`:
 ```typescript
 import { describe, expect, it } from 'vitest';
-import { extractPathFromInput } from '@/lib/services/cli/claude';
+import { TOOL_NAME_ACTION_MAP, extractPathFromInput, inferActionFromToolName } from '@/lib/tool-actions';
 
-describe('extractPathFromInput — Task tool name field', () => {
+describe('lib/tool-actions — TodoWrite mislabeling', () => {
+  it('mapuje TodoWrite na Generated, nie Created', () => {
+    expect(inferActionFromToolName('TodoWrite')).toBe('Generated');
+    expect(TOOL_NAME_ACTION_MAP['todowrite']).toBe('Generated');
+  });
+});
+
+describe('lib/tool-actions — Task tool name field', () => {
   it('nie myli pola name (nazwa subagenta) ze ścieżką pliku', () => {
     const result = extractPathFromInput({ name: 'code-reviewer', prompt: 'review the diff' });
     expect(result).toBeUndefined();
@@ -967,100 +1064,114 @@ describe('extractPathFromInput — Task tool name field', () => {
 });
 ```
 
-- [ ] **Step 2: Run both to verify they fail**
+- [ ] **Step 3: Run to verify it fails**
 
 ```bash
-npx vitest run tests/cli/claude-tool-actions.test.ts tests/services/extract-path-from-input.test.ts
+npx vitest run tests/lib/tool-actions.test.ts
 ```
-Expected: the `todowrite` assertion FAILS (currently `'Created'`), the `name` test FAILS (currently returns `'code-reviewer'` as if it were a path), the file-path test PASSES already.
+Expected: FAIL — `lib/tool-actions.ts` doesn't exist yet.
 
-- [ ] **Step 3: Fix both bugs in `lib/services/cli/claude.ts`**
+- [ ] **Step 4: Create `lib/tool-actions.ts` with both bugs fixed**
 
-Add an explicit `todowrite` entry to `TOOL_NAME_ACTION_MAP` (it currently has `todo_write`/`todo`/`plan_write` but not the no-separator lowercase form the real tool name produces — the same pattern already used for `taskcreate`/`taskupdate`/etc.):
-```typescript
-  todowrite: 'Generated',
-```
-In `extractPathFromInput`'s `candidateKeys` array, remove `'name'`.
+Move `ToolAction`, `TOOL_NAME_ACTION_MAP`, `normalizeAction`, `inferActionFromToolName`, `pickFirstString`, `extractPathFromInput` from `lib/services/cli/claude.ts` (pick either copy as the source — they're identical) into the new file, with these two fixes applied:
+1. Add `todowrite: 'Generated',` to `TOOL_NAME_ACTION_MAP` (it currently has `todo_write`/`todo`/`plan_write` but not the no-separator lowercase form the real tool name produces — the same pattern already used for `taskcreate`/`taskupdate`/etc.).
+2. Remove `'name'` from `extractPathFromInput`'s `candidateKeys` array.
 
-- [ ] **Step 4: Run both tests to verify they pass**
+The new file must have **zero imports** (all five exports are pure functions/data operating only on their own parameters) — if you find either copy actually does import something, stop and reconsider whether this module is safe for a client component before proceeding.
+
+Export everything: `export type ToolAction = ...`, `export const TOOL_NAME_ACTION_MAP = ...`, `export function normalizeAction(...)`, `export function inferActionFromToolName(...)`, `export function pickFirstString(...)`, `export function extractPathFromInput(...)`.
+
+- [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
-npx vitest run tests/cli/claude-tool-actions.test.ts tests/services/extract-path-from-input.test.ts
+npx vitest run tests/lib/tool-actions.test.ts
 ```
-Expected: both PASS.
+Expected: all PASS.
 
-- [ ] **Step 5: Extract the pure logic from `ChatLog.tsx` into `lib/serializers/client/tool-messages.ts`**
+- [ ] **Step 6: Point both `claude.ts` and `ChatLog.tsx` at the new module**
 
-Read the current `components/chat/ChatLog.tsx` in full first — the exact line range and function list may have shifted slightly since this plan was written. Move every module-scope function/constant between the imports and the `ChatLog` component definition that does **not** reference React state, refs, or JSX — per this audit, that's: `TOOL_NAME_ACTION_MAP`, `normalizeAction`, `inferActionFromToolName`, `pickFirstString`, `extractPathFromInput`, `extractToolCallId`, `parseToolPlaceholder`, `stripToolPlaceholderLines`, `createToolMessageFromPlaceholder`, `expandMessageWithToolPlaceholder`, `expandMessagesList`, `hashString`, `buildToolMessageKey`, `metadataEquals`, `areMessagesEqual`, `mergeMetadataObjects`, `mergeMessageRecord`, `integrateMessages`, `deriveToolInfoFromMetadata`, `processToolContent`, and the `ToolAction` type — into the new file, preserving their exact bodies and signatures. **Except** `TOOL_NAME_ACTION_MAP` and `inferActionFromToolName` specifically: don't move these — delete `ChatLog.tsx`'s copies entirely and import both from `@/lib/services/cli/claude` instead (which already exports them, and now has both bug fixes from Step 3).
-
-In `ChatLog.tsx`, replace the deleted block with:
+In `lib/services/cli/claude.ts`: delete the local `ToolAction`/`TOOL_NAME_ACTION_MAP`/`normalizeAction`/`inferActionFromToolName`/`pickFirstString`/`extractPathFromInput` definitions, add:
 ```typescript
-import { TOOL_NAME_ACTION_MAP, inferActionFromToolName } from '@/lib/services/cli/claude';
-import {
-  pickFirstString,
-  extractPathFromInput,
-  extractToolCallId,
-  parseToolPlaceholder,
-  stripToolPlaceholderLines,
-  createToolMessageFromPlaceholder,
-  expandMessageWithToolPlaceholder,
-  expandMessagesList,
-  hashString,
-  buildToolMessageKey,
-  metadataEquals,
-  areMessagesEqual,
-  mergeMetadataObjects,
-  mergeMessageRecord,
-  integrateMessages,
-  deriveToolInfoFromMetadata,
-  processToolContent,
-  type ToolAction,
-} from '@/lib/serializers/client/tool-messages';
+import { TOOL_NAME_ACTION_MAP, inferActionFromToolName, extractPathFromInput, type ToolAction } from '@/lib/tool-actions';
 ```
-(adjust the exact import list to match whatever the real function inventory turns out to be once you've read the file — this list reflects the audit's findings, not a guaranteed-exhaustive transcription).
+(only import the specific names this file actually references elsewhere — read the file to confirm which of the six it uses beyond the ones already named).
 
-- [ ] **Step 6: Write a test proving the extraction is behavior-preserving**
+In `components/chat/ChatLog.tsx`: delete its own local copies of the same six, add the identical import line. Since `lib/tool-actions.ts` has zero imports, this is safe for a `"use client"` file.
 
-Create `tests/serializers/tool-messages.test.ts` covering at minimum the tricky merge/dedup logic that's easiest to silently break in a mechanical move:
-```typescript
-import { describe, expect, it } from 'vitest';
-import { integrateMessages, buildToolMessageKey } from '@/lib/serializers/client/tool-messages';
+- [ ] **Step 7: Remove the now-superseded old test file**
 
-describe('lib/serializers/client/tool-messages — extracted from ChatLog.tsx', () => {
-  it('integrateMessages odrzuca duplikaty na podstawie klucza narzędzia', () => {
-    // Use the module's own real ChatMessage shape -- read tests/services/support
-    // or existing ChatLog-adjacent tests for a realistic fixture rather than
-    // inventing field names.
-  });
-});
-```
-(This step's exact assertions depend on the real shape of `ChatMessage` and `integrateMessages`'s actual dedup contract, which you'll see once you've read the extracted code — write real, specific assertions here, not a placeholder `expect(true).toBe(true)`. If an existing test elsewhere already exercises `ChatLog`'s message-merging indirectly through the component, note that and keep this new test focused on what's *not* already covered.)
-
-- [ ] **Step 7: Apply the identical `TOOL_NAME_ACTION_MAP` fix to no-longer-needed duplicate**
-
-This step is now moot by construction — `ChatLog.tsx` imports the fixed map from `claude.ts` (Step 5), so there is no second copy left to fix. Confirm this with:
 ```bash
-grep -n "TOOL_NAME_ACTION_MAP\s*[:=]" components/chat/ChatLog.tsx
+git rm tests/cli/claude-tool-actions.test.ts
 ```
-Expected: no match (only the import line, which doesn't match this pattern).
+(Its assertions are now covered by `tests/lib/tool-actions.test.ts`, testing the actual single source of truth instead of one of two copies.)
 
 - [ ] **Step 8: Full gate**
 
 ```bash
 npm run type-check && npm test && npm run lint && npm run build
 ```
-Expected: all four PASS. This is the highest-risk task in the plan — read every line of `tsc`/test output, don't skim.
+Expected: all four PASS. Pay particular attention to the build step — a client-component bundling failure is exactly the class of problem this task's redesign exists to prevent; if it fails here, re-check Step 4's zero-imports claim rather than assuming it's an unrelated flake.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 git add -A
-git commit -m "refactor: extract ChatLog.tsx's pure logic to lib/serializers/client/tool-messages.ts, unify with claude.ts's tool-action map, fix TodoWrite mislabeling and Task-tool name/path confusion
+git commit -m "refactor: unify claude.ts and ChatLog.tsx's duplicated tool-action logic into lib/tool-actions.ts, fix TodoWrite mislabeling and Task-tool name/path confusion
 
-ChatLog.tsx no longer maintains its own copy of TOOL_NAME_ACTION_MAP --
-imports the single, now-bug-fixed source of truth from claude.ts instead.
-Resolves the tracked duplication between the two files."
+Both files had four independently-duplicated pieces (the map plus three
+functions), not just the one map previously tracked -- both bugs now fixed
+once, in a zero-import leaf module both the server dispatch path and the
+client rendering path import from. Never has a client component import
+lib/services/cli/claude.ts, which pulls in the Agent SDK, fs/promises, and
+Prisma-backed services."
 ```
+
+---
+
+### Task 12b (optional, lower confidence): extract ChatLog.tsx's remaining stranded pure logic
+
+**This task is optional and should be scoped freshly by whoever implements it, not from this plan's line numbers.** The original version of this task claimed a precise 18-function inventory for a ~960-line move; red-team review found three concrete errors in that inventory (`processToolContent` is not module-scope — it's defined inside the `ToolMessage` component and may close over props; the claimed line range includes `ToolMessage` itself, a ~210-line JSX component explicitly meant to stay; `ensureMessageIdentity` and `randomMessageId`, which `integrateMessages`/`createToolMessageFromPlaceholder` likely depend on, were omitted). A plan whose stated contract is wrong in multiple places will not survive a fresh implementer without redoing the inventory from scratch — so do that inventory as this task's real first step, don't trust the list below as anything more than a starting hypothesis.
+
+**Value vs. risk:** Task 12 (above) already fixes both real bugs and resolves the *tracked* duplication (the map + the three functions around it). This task's only remaining value is moving `ChatLog.tsx`'s other pure helpers (message-merging, placeholder-parsing) into a lib module for its own sake — real, but purely cosmetic, and the riskiest mechanical operation in the whole plan given how large and easy to get subtly wrong it is. If time/risk tolerance is tight, skip this task entirely; nothing else in the plan depends on it.
+
+**Files:**
+- Create: `lib/serializers/client/tool-messages.ts`
+- Modify: `components/chat/ChatLog.tsx`
+- Test: `tests/serializers/tool-messages.test.ts` (new)
+
+**Interfaces:**
+- Produces: whatever the real inventory from Step 1 turns out to be — do not assume the names below are complete or correctly scoped.
+
+- [ ] **Step 1: Do a fresh, careful inventory — do not reuse this plan's line numbers**
+
+Read `components/chat/ChatLog.tsx` in full. For each candidate function between the imports and the `ChatLog` component definition, confirm with the codebase graph (not just reading) that it's genuinely module-scope and closure-free:
+```
+mcp__codebase-memory-mcp__search_graph(project="home-m-work-Claudable", file_pattern="ChatLog.tsx", label="Function")
+```
+For each result, check its containing scope — a function nested inside another function/component (like `processToolContent` inside `ToolMessage`, per the red-team finding) is not a candidate for this extraction, even if it looks pure on a skim. Build the real list before writing anything.
+
+- [ ] **Step 2: Extract the confirmed-safe subset into `lib/serializers/client/tool-messages.ts`**
+
+Move only what Step 1 actually confirmed — likely candidates per the original audit (verify each): `extractToolCallId`, `parseToolPlaceholder`, `stripToolPlaceholderLines`, `createToolMessageFromPlaceholder`, `expandMessageWithToolPlaceholder`, `expandMessagesList`, `hashString`, `buildToolMessageKey`, `metadataEquals`, `areMessagesEqual`, `mergeMetadataObjects`, `mergeMessageRecord`, `integrateMessages`, `deriveToolInfoFromMetadata`, plus whatever supporting functions (e.g. `ensureMessageIdentity`, `randomMessageId`) Step 1 finds they depend on. Preserve exact bodies and signatures — this is a move, not a rewrite. `processToolContent` stays in `ChatLog.tsx` inside `ToolMessage` unless Step 1's investigation specifically proves it's safe to extract (in which case, extract it and note why the original finding was wrong).
+
+- [ ] **Step 3: Write a real behavior-preservation test**
+
+Create `tests/serializers/tool-messages.test.ts` with real assertions against the real `ChatMessage` shape (read `types/realtime.ts` or wherever it's actually defined) and the real dedup contract of `integrateMessages`/`buildToolMessageKey` as you now understand them from Step 1 — no placeholder assertions.
+
+- [ ] **Step 4: Full gate**
+
+```bash
+npm run type-check && npm test && npm run lint && npm run build
+```
+Expected: all four PASS.
+
+- [ ] **Step 5: Commit (or explicitly skip this task and say why)**
+
+```bash
+git add -A
+git commit -m "refactor: extract ChatLog.tsx's remaining pure message-merging logic to lib/serializers/client/tool-messages.ts"
+```
+If you determine during Step 1 that the risk/value tradeoff isn't worth it for the actual current state of the file, that's a legitimate outcome for this task — report what you found and why you're skipping it, rather than forcing an extraction the inventory doesn't cleanly support.
 
 ---
 
@@ -1079,6 +1190,8 @@ Resolves the tracked duplication between the two files."
 
 - [ ] **Step 1: Write the failing test**
 
+**Note before writing this:** `mirrorAssetToPublic` (as moved verbatim in Step 3 below) writes to two locations — the project's own `public/uploads` (parameterized by `projectRoot`, safe to point at a temp dir) *and* a "host" copy at `path.join(process.cwd(), 'public', 'uploads')`, which is **not parameterized** — it always resolves against the real process working directory, i.e. this repo's actual `public/uploads/` directory when the test suite runs. This is existing behavior being moved, not something this task changes, so the test cannot avoid it by picking a different `projectRoot` — it must clean up the real file it causes to be written, or the test suite leaves a stray file in the tracked repo tree on every run.
+
 Create `tests/services/assets.test.ts`:
 ```typescript
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -1090,6 +1203,11 @@ import { mirrorAssetToPublic } from '@/lib/services/assets';
 describe('lib/services/assets — mirrorAssetToPublic', () => {
   let tmpProjectRoot: string;
   let sourceFile: string;
+  const testFilename = 'assets-test-mirror-artifact.png';
+  // mirrorAssetToPublic's "host" mirror is hardcoded to process.cwd(), not
+  // parameterized -- this test's own artifact there, so it must clean up
+  // after itself instead of leaving a stray file in the real repo tree.
+  const hostArtifactPath = path.join(process.cwd(), 'public', 'uploads', testFilename);
 
   beforeEach(async () => {
     tmpProjectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'assets-test-'));
@@ -1099,16 +1217,18 @@ describe('lib/services/assets — mirrorAssetToPublic', () => {
 
   afterEach(async () => {
     await fs.rm(tmpProjectRoot, { recursive: true, force: true });
+    await fs.rm(hostArtifactPath, { force: true });
   });
 
   it('kopiuje plik do public/uploads projektu i zwraca ścieżkę', async () => {
-    const result = await mirrorAssetToPublic(tmpProjectRoot, 'copy.png', sourceFile);
+    const result = await mirrorAssetToPublic(tmpProjectRoot, testFilename, sourceFile);
     expect(result.publicPath).toBeTruthy();
-    const copied = await fs.readFile(path.join(tmpProjectRoot, 'public', 'uploads', 'copy.png'));
+    const copied = await fs.readFile(path.join(tmpProjectRoot, 'public', 'uploads', testFilename));
     expect(copied.toString()).toBe('fake-image-bytes');
   });
 });
 ```
+A distinctive filename (`assets-test-mirror-artifact.png`, not `copy.png`) is used deliberately, so this test's cleanup can never collide with or delete a real uploaded asset of the same name if this ever runs against a working tree that has one.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -1456,48 +1576,21 @@ git commit -m "refactor: consolidate waitForUrl() into electron/wait-for-url.js,
 
 ### Task 17: Reconcile `ProjectStatus`/`Project` type drift
 
+**Revised after red-team review: re-export instead of a hand-duplicated second union + test.** The original draft widened `types/backend/project.ts`'s union to match `types/project.ts` by hand, backed by a `tests/types/project-status.test.ts` whose "runtime backstop" assertion (`expect(frontendValues).toEqual(frontendValues.slice().sort())`) compares an array to its own sorted copy — it never reads `BackendStatus` at runtime at all, so it would pass unconditionally regardless of what either union actually contains. Two hand-maintained unions is also exactly the shape that drifted the first time. The fix below removes the second declaration entirely instead of policing it.
+
 **Files:**
-- Modify: `types/project.ts`
 - Modify: `types/backend/project.ts`
 
 **Interfaces:**
-- Produces: both files' `ProjectStatus` become identical (9-value union), sourced from one definition.
+- Produces: `types/backend/project.ts`'s `ProjectStatus` becomes a direct re-export of `types/project.ts`'s (same 9-value union: `idle`/`preview_running`/`building`/`initializing`/`active`/`failed`/`running`/`stopped`/`error`), so there is exactly one declaration and structural drift is no longer possible.
 
-`types/project.ts`'s `ProjectStatus` has 9 values (`idle`/`preview_running`/`building`/`initializing`/`active`/`failed`/`running`/`stopped`/`error`); `types/backend/project.ts`'s has only 4 (`idle`/`running`/`stopped`/`error`) — real drift, not cosmetic. The Prisma `Project.status` column is a plain `String` with no enum constraint (`status String @default("idle")`), so neither type is "the" source of truth at the database level — this task picks the more complete 9-value union as canonical and makes the backend copy match it, rather than inventing a third source.
+`types/project.ts`'s `ProjectStatus` has 9 values; `types/backend/project.ts`'s independently hand-written copy has only 4 (`idle`/`running`/`stopped`/`error`) — real drift, not cosmetic. The Prisma `Project.status` column is a plain `String` with no enum constraint (`status String @default("idle")`), so neither type is "the" source of truth at the database level — this task picks the more complete 9-value union in `types/project.ts` as canonical and makes `types/backend/project.ts` re-export it, rather than inventing a third source or maintaining two copies in sync by hand.
 
-- [ ] **Step 1: Write a test pinning the two types to the same value set**
+- [ ] **Step 1: Read `types/backend/project.ts` in full**
 
-Create `tests/types/project-status.test.ts`:
-```typescript
-import { describe, expect, it } from 'vitest';
-import type { ProjectStatus as FrontendStatus } from '@/types/project';
-import type { ProjectStatus as BackendStatus } from '@/types/backend/project';
+Confirm the current `ProjectStatus` declaration (today: `export type ProjectStatus = 'idle' | 'running' | 'stopped' | 'error';`) and check whether anything else in the file depends on it being a locally-declared type rather than a re-export (e.g. re-exported again from a barrel, or used as a generic default) — a plain `export type { ProjectStatus } from '...'` re-export is interchangeable with a local declaration everywhere TypeScript checks structural compatibility, so this should be a non-issue, but confirm before changing it.
 
-// Compile-time check: if the two unions ever diverge again, one of these
-// assignments stops compiling. Runtime assertion below is a readable
-// backstop for anyone who breaks the type-only check without running tsc.
-const _typeParity: FrontendStatus extends BackendStatus ? (BackendStatus extends FrontendStatus ? true : false) : false = true;
-
-describe('ProjectStatus — types/project.ts and types/backend/project.ts stay in sync', () => {
-  it('mają identyczny zestaw wartości', () => {
-    const frontendValues = ['idle', 'preview_running', 'building', 'initializing', 'active', 'failed', 'running', 'stopped', 'error'].sort();
-    // This list is duplicated here deliberately as a readable, independent
-    // check -- if you change one union without the other, this test and
-    // the compile-time check above both catch it from different angles.
-    expect(frontendValues).toEqual(frontendValues.slice().sort());
-    void _typeParity;
-  });
-});
-```
-
-- [ ] **Step 2: Run to verify the compile-time check currently fails**
-
-```bash
-npx tsc --noEmit -p tsconfig.json 2>&1 | grep -i "project-status"
-```
-Expected: a type error on the `_typeParity` line (today's 4-value `BackendStatus` doesn't extend the 9-value `FrontendStatus`).
-
-- [ ] **Step 3: Widen `types/backend/project.ts`'s `ProjectStatus`**
+- [ ] **Step 2: Replace the duplicated declaration with a re-export**
 
 Change:
 ```typescript
@@ -1505,41 +1598,32 @@ export type ProjectStatus = 'idle' | 'running' | 'stopped' | 'error';
 ```
 to:
 ```typescript
-export type ProjectStatus =
-  | 'idle'
-  | 'running'
-  | 'stopped'
-  | 'error'
-  | 'preview_running'
-  | 'building'
-  | 'initializing'
-  | 'active'
-  | 'failed';
+export type { ProjectStatus } from '@/types/project';
 ```
-(matching `types/project.ts`'s value set exactly).
 
-- [ ] **Step 4: Verify the compile-time check now passes**
+- [ ] **Step 3: Verify the widened type doesn't break an exhaustive `switch` somewhere**
 
 ```bash
-npx tsc --noEmit -p tsconfig.json 2>&1 | grep -i "project-status"
+npm run type-check
 ```
-Expected: no output (no error).
+Expected: PASS. If this surfaces a `switch`/exhaustiveness error somewhere that previously only handled the narrower 4 values, that's a real gap this task just surfaced — fix the switch to handle the other 5 values sensibly (don't silently add a `default` that swallows them) rather than reverting to a narrower local type.
 
-- [ ] **Step 5: Full gate**
+- [ ] **Step 4: Full gate**
 
 ```bash
 npm run type-check && npm test && npm run lint && npm run build
 ```
-Expected: all four PASS. If widening `types/backend/project.ts`'s `ProjectStatus` causes a downstream `switch`/exhaustiveness error somewhere that previously only handled 4 values, that's a real gap this task just surfaced — fix the switch to handle the other 5 values sensibly (don't silently add a `default` that swallows them) rather than narrowing the type back down.
+Expected: all four PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add -A
-git commit -m "fix: reconcile ProjectStatus drift between types/project.ts and types/backend/project.ts
+git commit -m "fix: reconcile ProjectStatus drift by re-exporting types/project.ts's union from types/backend/project.ts
 
-The backend copy was missing 5 of 9 status values the frontend copy has
--- real drift from independent hand-maintenance, not a cosmetic dup."
+The backend copy was a hand-maintained duplicate missing 5 of 9 status
+values the frontend copy has. Re-exporting instead of widening both by
+hand removes the second declaration entirely, so this can't drift again."
 ```
 
 ---
@@ -1554,35 +1638,110 @@ The backend copy was missing 5 of 9 status values the frontend copy has
 - Modify: `app/[project_id]/chat/page.tsx`
 
 **Interfaces:**
-- Produces: `TreeView` (React component, same props it has today), `getFileIcon(filename: string): ReactNode` (or whatever its real return type is — read the current signature), `getFileLanguage(filename: string): string`, `escapeHtml(text: string): string`.
+- Produces (from `components/chat/TreeView.tsx`): `export type Entry = { path: string; type: 'file' | 'dir'; size?: number }`, `export interface TreeViewProps` (same shape as today), `export function TreeView(props: TreeViewProps): React.ReactElement | null`, `export function getFileIcon(entry: Entry): React.ReactElement`.
+- Produces (from `lib/utils/file-display.ts`): `getFileLanguage(path: string): string`, `escapeHtml(value: string): string`.
+
+**Corrected after self-review against the real file** (the first draft of this task had 3 wrong assumptions — verified directly by reading `app/[project_id]/chat/page.tsx` before writing this version):
+1. `getFileIcon` returns JSX (`React.ReactElement`, literally `<span>...<FaFolder /></span>` etc.) — it cannot live in `lib/utils/file-display.ts` as a plain `.ts` module (the project's `lib/` tree has zero `.tsx` files today; introducing one here would be the first, breaking an established convention for no reason). It moves into `components/chat/TreeView.tsx` instead, alongside `TreeView` — the component it's already passed into as a prop.
+2. The grep pattern in the original draft (`^function TreeView`, `^function getFileIcon`, etc.) does not match anything: `getFileLanguage`, `escapeHtml`, and `getFileIcon` are declared with 2-space indentation, nested inside the page's default-exported `ChatPage` component body (they read only their own parameters and module-level imports, so they're still safely extractable — nesting doesn't imply a closure over state here, confirmed by reading each body in full).
+3. `TreeViewProps` references a module-scope type alias `type Entry = { path: string; type: 'file'|'dir'; size?: number }` (declared once, above `TreeView`, at today's line 40) that the original draft never gave a destination. It moves to `components/chat/TreeView.tsx` too (as an `export type`), since that's the type's primary consumer and where `getFileIcon` also needs it.
 
 **Explicit scope boundary — read before starting:** `app/[project_id]/chat/page.tsx` is a 2,377-line component with 37 `useState` hooks mixing 4 concerns (chat, file explorer, live preview, init/status polling). This task extracts **only** the four already-fully-decoupled pieces named above — props-only or pure-function, zero closures over component state. **Do not** attempt to split the state clusters into child components or hooks in this task — that's real behavioral surface needing its own dedicated design pass, not a bullet point in a cleanup plan. If you find yourself touching a `useState`/`useEffect` in `chat/page.tsx` beyond removing the now-moved code, stop — that's out of this task's scope.
 
-- [ ] **Step 1: Read the current file and confirm the four pieces are still fully decoupled**
+- [ ] **Step 1: Read the current file and confirm the pieces are still where this plan found them**
 
 ```bash
-grep -n "^function TreeView\|^  const TreeView\|^function getFileIcon\|^function getFileLanguage\|^function escapeHtml" app/\[project_id\]/chat/page.tsx
+grep -n "^type Entry\|^function TreeView\|^  function getFileIcon\|^  function getFileLanguage\|^  function escapeHtml" app/\[project_id\]/chat/page.tsx
 ```
-Read each one in full. Confirm none of them close over component-scoped state (they should only reference their own parameters and module-level imports/constants) before moving anything — if any of them turn out to reference component state that this plan's earlier read didn't catch, treat that one as out of scope for this task and only move the others.
+As of this audit: `type Entry` at line 40, `function TreeView` at line 65 (module-scope, not nested), `function getFileLanguage` at line 888, `function escapeHtml` at line 957, `function getFileIcon` at line 967 (these three nested 2 spaces inside `ChatPage`). Re-verify these line numbers and read each in full before moving anything — if any of them now reference component-scoped state that this plan didn't catch, treat that one as out of scope for this task and only move the others.
 
-- [ ] **Step 2: Move `TreeView` to its own file**
+- [ ] **Step 2: Move `Entry`, `TreeView`, and `getFileIcon` to `components/chat/TreeView.tsx`**
 
-Create `components/chat/TreeView.tsx` with the component's full body (props interface + implementation), preserving its exact prop types. In `chat/page.tsx`, delete the local definition and add `import { TreeView } from '@/components/chat/TreeView';` (or a default export, matching whatever export style the rest of `components/chat/` uses — check a sibling file first).
+Create `components/chat/TreeView.tsx`:
+```typescript
+import {
+  FaFolder,
+  FaFolderOpen,
+  FaChevronDown,
+  FaChevronRight,
+  FaFileCode,
+  FaCss3Alt,
+  FaHtml5,
+  FaJs,
+  FaReact,
+  FaPython,
+  FaDocker,
+  FaMarkdown,
+  FaDatabase,
+  FaPhp,
+  FaJava,
+  FaRust,
+  FaVuejs,
+  FaLock,
+  FaCog,
+  FaFile,
+} from 'react-icons/fa';
+import { SiTypescript, SiGo, SiRuby, SiSvelte, SiJson, SiYaml, SiCplusplus } from 'react-icons/si';
+import { VscJson } from 'react-icons/vsc';
 
-- [ ] **Step 3: Move the three pure functions to `lib/utils/file-display.ts`**
+export type Entry = { path: string; type: 'file' | 'dir'; size?: number };
+
+export interface TreeViewProps {
+  entries: Entry[];
+  selectedFile: string;
+  expandedFolders: Set<string>;
+  folderContents: Map<string, Entry[]>;
+  onToggleFolder: (path: string) => void;
+  onSelectFile: (path: string) => void;
+  onLoadFolder: (path: string) => Promise<void>;
+  level: number;
+  parentPath?: string;
+  getFileIcon: (entry: Entry) => React.ReactElement;
+}
+
+export function TreeView({ entries, selectedFile, expandedFolders, folderContents, onToggleFolder, onSelectFile, onLoadFolder, level, parentPath = '', getFileIcon }: TreeViewProps) {
+  // (paste the exact current body of the module-scope `TreeView` function
+  // here, lines 66-166 of app/[project_id]/chat/page.tsx as of this audit --
+  // it is a straight cut-paste, no logic changes, re-verify against the
+  // current file before pasting)
+}
+
+// (paste the exact current body of the nested `getFileIcon` function here,
+// lines 967-1047 as of this audit -- straight cut-paste, no logic changes)
+export function getFileIcon(entry: Entry): React.ReactElement {
+  // ...
+}
+```
+`SiJson` is imported by the original file's icon-import block but not actually referenced inside `getFileIcon`'s body (re-verify: the current code uses `VscJson` for `package.json`/`.json`, not `SiJson`) — do not carry over an unused import; only import what `getFileIcon` and `TreeView` actually reference in their pasted bodies.
+
+In `chat/page.tsx`, delete the local `type Entry`, `TreeViewProps` interface, `TreeView` function, and nested `getFileIcon` function, and add:
+```typescript
+import { TreeView, getFileIcon, type Entry } from '@/components/chat/TreeView';
+```
+Anywhere in `chat/page.tsx` that referenced the bare `Entry` type (e.g. state typed `Map<string, Entry[]>`) now needs this import instead of the deleted local type.
+
+- [ ] **Step 3: Move `getFileLanguage` and `escapeHtml` to `lib/utils/file-display.ts`**
 
 ```typescript
 // lib/utils/file-display.ts
-// (paste getFileIcon, getFileLanguage, escapeHtml here with their exact
-// current bodies -- read the real current implementations before writing
-// this file, they are not reproduced here since this plan predates the
-// exact current line numbers)
-```
-In `chat/page.tsx`, delete the three local definitions and add `import { getFileIcon, getFileLanguage, escapeHtml } from '@/lib/utils/file-display';`.
+// (paste the exact current bodies of getFileLanguage, lines 888-955, and
+// escapeHtml, lines 957-964 as of this audit -- straight cut-paste, no
+// logic changes; re-verify against the current file before pasting)
+export function getFileLanguage(path: string): string {
+  // ...
+}
 
-- [ ] **Step 4: Write a test for the extracted pure functions**
+export function escapeHtml(value: string): string {
+  // ...
+}
+```
+In `chat/page.tsx`, delete the two local definitions and add `import { getFileLanguage, escapeHtml } from '@/lib/utils/file-display';`.
+
+- [ ] **Step 4: Write tests for the extracted pure functions**
 
 Create `tests/utils/file-display.test.ts` with real assertions based on the actual function bodies you just read (e.g., if `getFileLanguage('app.tsx')` returns `'typescript'` today, assert that) — write assertions against the real, current behavior, not invented expected values.
+
+Create `tests/components/tree-view.test.tsx` with at least one assertion that `getFileIcon` returns a distinct icon for a directory entry vs. a `.ts` file entry vs. an unrecognized extension (render with `@testing-library/react` if already a project dependency — check `package.json` first; if it is not, assert on the returned `React.ReactElement`'s `type`/`props` directly instead of rendering, matching whatever pattern the rest of `components/chat/` tests already use — check for existing tests under `tests/components/` first rather than introducing a new testing approach).
 
 - [ ] **Step 5: Full gate**
 
@@ -1603,63 +1762,105 @@ concern-mixing in this file needs its own design pass, not a cleanup task."
 
 ---
 
-### Task 19: Consolidate model-selection state into `useModelSelection()`
+### Task 19: Extract the shared `sessionStorage` model-persistence logic (revised, much smaller scope)
+
+**Substantially revised after red-team review found the original premise was wrong for 3 of the 4 named files.** Direct verification (re-read all 4 files in full):
+- `app/page.tsx` both **reads** (`sessionStorage.getItem('selectedModel')`, line 69) and **writes** (`sessionStorage.setItem('selectedModel', ...)`, line 96) — this one is real.
+- `app/[project_id]/chat/page.tsx` only ever **writes** (`sessionStorage.setItem('selectedModel', ...)`, lines 254 and 359) — it never reads `sessionStorage` at all. It initializes its own `selectedModel` state from `getDefaultModelForCli` and the project record, not from `sessionStorage`.
+- `components/modals/CreateProjectModal.tsx`'s `selectedModel` state is seeded from a `defaultModel` **prop** (passed by `app/page.tsx`, which is where the real `sessionStorage` state lives) and never touches `sessionStorage` directly anywhere in the file. This is deliberately ephemeral, scoped to one open-modal session — routing it through a shared persisted store would make picking a model in the create-project dialog silently overwrite the home page's saved selection, a real behavior regression, not a dedup.
+- `components/chat/ChatInput.tsx` has **no model state at all** — `selectedModel` is a plain prop (line 47), `selectedModelValue` is a `useMemo` derived from it. There is nothing to consolidate here.
+
+So this is not "4 copies of one thing" — it's a producer (`app/page.tsx`) and one write-only consumer (`chat/page.tsx`) sharing a `sessionStorage` key, plus two unrelated files that don't participate at all. **`CreateProjectModal.tsx` and `ChatInput.tsx` are dropped from this task entirely.**
 
 **Files:**
-- Create: `hooks/useModelSelection.ts`
+- Create: `lib/utils/model-selection-storage.ts`
 - Modify: `app/page.tsx`
 - Modify: `app/[project_id]/chat/page.tsx`
-- Modify: `components/modals/CreateProjectModal.tsx`
-- Modify: `components/chat/ChatInput.tsx`
-- Test: `tests/hooks/useModelSelection.test.ts` (new)
+- Test: `tests/utils/model-selection-storage.test.ts` (new)
 
 **Interfaces:**
-- Produces: `useModelSelection(): { selectedModel: string; setSelectedModel: (id: string) => void; models: ClaudeModelDefinition[] }` (exact shape to be finalized once you've read all 4 current implementations — this is a starting contract, not a locked one; if a call site needs one more field, add it rather than working around the hook).
+- Produces: `readStoredModel(): string | null` (returns the raw stored value, or `null` if unset/unavailable — callers apply their own `normalizeModelId` as they do today) and `writeStoredModel(modelId: string): void`.
 
-Two files (`app/page.tsx`, `app/[project_id]/chat/page.tsx`) independently implement `selectedModel` state + `sessionStorage` sync + `normalizeModelId` sanitization; `CreateProjectModal.tsx` implements a third, custom dropdown; `ChatInput.tsx` uses a plain `<select>` for the same concept. Real behavioral surface across 4 files — give this real care, not a mechanical move.
+- [ ] **Step 1: Write the failing test**
 
-- [ ] **Step 1: Read all 4 current implementations before writing the hook**
+Create `tests/utils/model-selection-storage.test.ts`:
+```typescript
+import { describe, expect, it, beforeEach } from 'vitest';
+import { readStoredModel, writeStoredModel } from '@/lib/utils/model-selection-storage';
+
+describe('lib/utils/model-selection-storage', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+  });
+
+  it('zwraca null, gdy nic nie zapisano', () => {
+    expect(readStoredModel()).toBeNull();
+  });
+
+  it('zapisuje i odczytuje wybrany model', () => {
+    writeStoredModel('claude-opus-5');
+    expect(readStoredModel()).toBe('claude-opus-5');
+  });
+});
+```
+(Requires a `sessionStorage` global in the vitest environment — check `vitest.config.ts`'s `environment` setting; if it's not already `jsdom` or similar, this is a real infrastructure gap to report, not something to silently work around.)
+
+- [ ] **Step 2: Run to verify it fails**
 
 ```bash
-grep -n "selectedModel\|sessionStorage" app/page.tsx app/\[project_id\]/chat/page.tsx components/modals/CreateProjectModal.tsx components/chat/ChatInput.tsx
+npx vitest run tests/utils/model-selection-storage.test.ts
 ```
-Read each surrounding block in full. Identify the exact `sessionStorage` key(s) used (they must match across all 4 for this consolidation to be behavior-preserving — if they currently differ, that's itself a live bug the audit didn't catch; report it before deciding how to reconcile it, don't silently pick one).
+Expected: FAIL — the module doesn't exist yet.
 
-- [ ] **Step 2: Write the failing test for the hook's core contract**
+- [ ] **Step 3: Create the shared module**
 
-Create `tests/hooks/useModelSelection.test.ts`:
 ```typescript
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+// lib/utils/model-selection-storage.ts
+const STORAGE_KEY = 'selectedModel';
+
+export function readStoredModel(): string | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  return sessionStorage.getItem(STORAGE_KEY);
+}
+
+export function writeStoredModel(modelId: string): void {
+  if (typeof sessionStorage === 'undefined') return;
+  sessionStorage.setItem(STORAGE_KEY, modelId);
+}
 ```
-(Check whether `@testing-library/react` is already a devDependency — per the dependency-upgrade design record, this repo currently has **no** React component-testing infrastructure at all. If it's genuinely absent, do not add it just for this one hook test — instead write the test against the hook's logic with a minimal manual harness, e.g. by calling the hook's underlying pure functions directly if you factor the `sessionStorage` read/normalize logic out as a plain function the hook wraps. State explicitly in your task report which path you took and why, since this is a real infrastructure decision, not a mechanical step.)
 
-- [ ] **Step 3: Implement `useModelSelection`**
+- [ ] **Step 4: Run to verify it passes**
 
-Base it on `app/page.tsx`'s and `chat/page.tsx`'s current logic (the two that already do the full state+sessionStorage+normalize pattern) — write the actual hook once you've read Step 1's output, using the real `sessionStorage` key and `normalizeModelId` call shape those two files use today.
+```bash
+npx vitest run tests/utils/model-selection-storage.test.ts
+```
+Expected: PASS.
 
-- [ ] **Step 4: Migrate all 4 call sites**
+- [ ] **Step 5: Update the two real call sites**
 
-`app/page.tsx` and `app/[project_id]/chat/page.tsx`: replace their local state+effect blocks with `const { selectedModel, setSelectedModel, models } = useModelSelection();`.
-`components/modals/CreateProjectModal.tsx`: replace its custom dropdown's local state with the hook, keeping the dropdown's own JSX/UI (only the state management moves, not the visual component — the audit didn't flag the dropdown UI itself as wrong, only the duplicated state logic).
-`components/chat/ChatInput.tsx`: same — replace local state with the hook, keep the `<select>` JSX as-is.
+In `app/page.tsx`: replace the direct `sessionStorage.getItem('selectedModel')` (line 69) and `sessionStorage.setItem('selectedModel', ...)` (line 96) calls with `readStoredModel()`/`writeStoredModel(...)`, keeping every surrounding line (the `normalizeModelId` call, the `isPageRefresh`/`navigationFlag` logic, the `isInitialLoad` guard) exactly as it is today — only the two direct `sessionStorage.*` calls change.
 
-- [ ] **Step 5: Full gate, plus a manual smoke check**
+In `app/[project_id]/chat/page.tsx`: replace the two `sessionStorage.setItem('selectedModel', ...)` call sites (lines 254 and 359) with `writeStoredModel(...)`, keeping their surrounding logic unchanged. Do not add a read call here — this file has never read from `sessionStorage` and nothing in this task should change that.
+
+- [ ] **Step 6: Full gate**
 
 ```bash
 npm run type-check && npm test && npm run lint && npm run build
 ```
-Expected: all four PASS. Given this touches real cross-component behavior with no component-test infrastructure to lean on, also use the `run` skill to start the app and manually confirm: selecting a model on the home page (`app/page.tsx`) and then opening a project's chat page shows the same selection (proving the `sessionStorage` sync still works end-to-end) — report what you observed, don't skip this because the automated gate is green.
+Expected: all four PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A
-git commit -m "refactor: consolidate model-selection state into useModelSelection() hook
+git commit -m "refactor: extract sessionStorage model-persistence into lib/utils/model-selection-storage.ts
 
-app/page.tsx, app/[project_id]/chat/page.tsx, CreateProjectModal.tsx, and
-ChatInput.tsx each independently managed selectedModel + sessionStorage
-sync + normalization; now share one hook."
+app/page.tsx (the only reader+writer) and app/[project_id]/chat/page.tsx
+(write-only) shared a raw sessionStorage key with two independent call
+sites; now share one small module. CreateProjectModal.tsx and
+ChatInput.tsx were never part of this -- the former's model state is
+scoped to one open-modal session via a prop, the latter has no model
+state of its own at all."
 ```
 
 ---
