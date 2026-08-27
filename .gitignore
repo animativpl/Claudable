@@ -40,6 +40,11 @@ next-env.d.ts
 # Claudable Specific
 # ============================================================
 
+# SQLite database
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-wal
+
 # Generated projects
 data/
 

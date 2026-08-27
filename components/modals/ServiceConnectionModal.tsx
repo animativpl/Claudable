@@ -351,7 +351,7 @@ export default function ServiceConnectionModal({
                       disabled={isLoading}
                     />
                     <p className="text-xs text-gray-500 mt-2">
-                      Your token will be encrypted and stored securely. You can delete it anytime.
+                      Your token is stored locally and is never sent anywhere except GitHub&apos;s API. You can delete it anytime.
                     </p>
                   </div>
 
