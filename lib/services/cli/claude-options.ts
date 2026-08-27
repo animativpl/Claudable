@@ -40,7 +40,6 @@ export interface BuildClaudeOptionsInput {
 export function buildClaudeQueryOptions(input: BuildClaudeOptionsInput): Options {
   return {
     cwd: input.projectPath,
-    additionalDirectories: [input.projectPath],
     model: input.model,
     resume: input.sessionId,
     permissionMode: 'bypassPermissions',

@@ -80,53 +80,6 @@ export class StreamManager {
       this.removeStream(projectId, controller);
     });
   }
-
-  /**
-   * Return number of connected streams for a project
-   */
-  public getStreamCount(projectId: string): number {
-    const projectStreams = this.streams.get(projectId);
-    return projectStreams ? projectStreams.size : 0;
-  }
-
-  /**
-   * Return total number of streams across all projects
-   */
-  public getTotalStreamCount(): number {
-    let total = 0;
-    this.streams.forEach((streams) => {
-      total += streams.size;
-    });
-    return total;
-  }
-
-  /**
-   * Close all stream connections for a project
-   */
-  public closeProjectStreams(projectId: string): void {
-    const projectStreams = this.streams.get(projectId);
-    if (projectStreams) {
-      projectStreams.forEach((controller) => {
-        try {
-          controller.close();
-        } catch (error) {
-          console.error(`[StreamManager] Failed to close stream:`, error);
-        }
-      });
-      this.streams.delete(projectId);
-      console.log(`[StreamManager] Closed all streams for project: ${projectId}`);
-    }
-  }
-
-  /**
-   * Close all stream connections
-   */
-  public closeAllStreams(): void {
-    this.streams.forEach((projectStreams, projectId) => {
-      this.closeProjectStreams(projectId);
-    });
-    console.log(`[StreamManager] Closed all streams`);
-  }
 }
 
 // Export Singleton instance (stable across HMR and route module reloads)

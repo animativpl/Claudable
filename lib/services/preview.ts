@@ -573,21 +573,6 @@ async function appendCommandLogs(
   });
 }
 
-async function ensureDependencies(
-  projectPath: string,
-  env: NodeJS.ProcessEnv,
-  logger: (chunk: Buffer | string) => void
-) {
-  try {
-    await fs.access(path.join(projectPath, 'node_modules'));
-    return;
-  } catch {
-    // node_modules missing, fall back to npm install
-  }
-
-  await runInstallWithPreferredManager(projectPath, env, logger);
-}
-
 /**
  * Środowisko dowolnego procesu projektu użytkownika (dev-server, `npm
  * install`, ...). Zmienne sesji Claude Code odpadają w całości, z dwóch
@@ -1069,11 +1054,6 @@ class PreviewManager {
       };
     }
     return this.toInfo(processInfo);
-  }
-
-  public getLogs(projectId: string): string[] {
-    const processInfo = this.processes.get(projectId);
-    return processInfo ? [...processInfo.logs] : [];
   }
 
   private toInfo(processInfo: PreviewProcess): PreviewInfo {

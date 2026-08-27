@@ -135,40 +135,6 @@ export async function ensureProjectRepository(projectId: string, repoPath?: stri
   return resolved;
 }
 
-export async function getGithubRepositoryDetails(owner: string, repo: string): Promise<GitHubRepositoryInfo> {
-  const token = await getPlainServiceToken('github');
-  if (!token) {
-    throw new GitHubError('GitHub token not configured', 401);
-  }
-
-  try {
-    const data = (await githubFetch(token, `/repos/${owner}/${repo}`)) as any;
-    if (!data || typeof data.id !== 'number') {
-      throw new GitHubError('GitHub repository not found', 404);
-    }
-
-    return {
-      id: data.id,
-      name: data.name,
-      full_name: data.full_name,
-      owner: {
-        login: data.owner?.login ?? owner,
-        id: typeof data.owner?.id === 'number' ? data.owner.id : null,
-      },
-      default_branch: data.default_branch,
-    };
-  } catch (error) {
-    if (error instanceof GitHubError) {
-      if (error.status === 404) {
-        throw new GitHubError('GitHub repository not found', 404);
-      }
-      throw error;
-    }
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    throw new GitHubError(`Failed to fetch repository metadata: ${message}`);
-  }
-}
-
 export async function connectProjectToGitHub(projectId: string, options: CreateRepoOptions) {
   const project = await getProjectById(projectId);
   if (!project) {
