@@ -102,12 +102,9 @@ COPY --from=build --chown=node:node /app/prisma ./prisma
 # pierwszym użyciu — start kontenera wygląda zdrowo.
 #
 # Ten pakiet platformowy dzieli scope @anthropic-ai z głównym pakietem SDK,
-# więc poniższy COPY (niezmieniony od czasu, gdy kopiował tylko cli.js) powinien
-# go już przenosić — tak npm układa pakiety scope'owane. NIEZWERYFIKOWANE
-# uruchomieniem obrazu: Task 5 Step 10 planu aktualizacji zależności nie mógł
-# się wykonać, bo na maszynie builda demon dockera był wyłączony i nie było jak
-# go wystartować bez roota. Do potwierdzenia przy pierwszym realnym buildzie:
-# test -x /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-<arch>/claude
+# więc poniższy COPY (niezmieniony od czasu, gdy kopiował tylko cli.js) go już
+# przenosi — zweryfikowane uruchomieniem obrazu (Task 5 Step 10 planu
+# aktualizacji zależności), nie założone.
 COPY --from=build --chown=node:node /app/node_modules/@anthropic-ai ./node_modules/@anthropic-ai
 
 # Poza /app, żeby nie mieszać się z `node_modules` z trace'u standalone —
