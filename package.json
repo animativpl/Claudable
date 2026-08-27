@@ -79,7 +79,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/claudable.git"
+    "url": "https://github.com/anymorph-ai/Claudable.git"
   },
   "build": {
     "appId": "com.claudable.desktop",

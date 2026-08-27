@@ -45,9 +45,8 @@ How to start? Simply login to Claude Code, start Claudable, and describe what yo
 - **GitHub Integration**: Automatic version control — create or connect a repository and push commits as you build
 - **Desktop App**: Available as Electron desktop application for Mac, Windows, and Linux
 
-## Supported AI Coding Agents
+## AI Coding Agent
 
-### Claude Code
 **[Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup)** - Anthropic's advanced AI coding agent
 - **Features**: Deep codebase awareness, Unix philosophy, direct terminal integration
 - **Context**: 1M tokens (`claude-opus-5`, `claude-sonnet-5`), 200K tokens (`claude-haiku-4-5`)
@@ -314,8 +313,11 @@ npm run db:migrate-legacy
 ```
 
 Skipping this leaves the legacy `ServiceToken` rows for `vercel` and
-`supabase` in place, holding plaintext tokens the app can no longer delete:
-`DELETE /api/tokens/vercel` answers 400 now that those providers are gone.
+`supabase` in place, holding plaintext tokens the app can no longer delete
+through the UI: `GET /api/tokens/:provider` only recognizes `github` and
+rejects anything else, so there's no listing path to their delete button,
+and `DELETE /api/tokens/:id` matches by primary key, not provider name, so
+`DELETE /api/tokens/vercel` 404s rather than deleting anything.
 
 ### Database Migration Conflicts
 
