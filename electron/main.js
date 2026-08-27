@@ -3,9 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
-const http = require('http');
-const https = require('https');
 const net = require('net');
+const { waitForUrl } = require('./wait-for-url');
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 let mainWindow = null;
@@ -25,41 +24,6 @@ const rootDir = app.isPackaged
   : path.join(__dirname, '..');
 const standaloneDir = path.join(rootDir, '.next', 'standalone');
 const preloadPath = path.join(__dirname, 'preload.js');
-
-function waitForUrl(targetUrl, timeoutMs = 30_000, intervalMs = 200) {
-  const { protocol } = new URL(targetUrl);
-  const requester = protocol === 'https:' ? https : http;
-  const start = Date.now();
-
-  return new Promise((resolve, reject) => {
-    const poll = () => {
-      const request = requester
-        .get(targetUrl, (response) => {
-          response.resume();
-          if (response.statusCode && response.statusCode >= 200 && response.statusCode < 400) {
-            resolve();
-            return;
-          }
-          if (Date.now() - start >= timeoutMs) {
-            reject(new Error(`Timed out waiting for ${targetUrl}`));
-          } else {
-            setTimeout(poll, intervalMs);
-          }
-        })
-        .on('error', () => {
-          if (Date.now() - start >= timeoutMs) {
-            reject(new Error(`Timed out waiting for ${targetUrl}`));
-          } else {
-            setTimeout(poll, intervalMs);
-          }
-        });
-
-      request.setTimeout(intervalMs, () => request.destroy());
-    };
-
-    poll();
-  });
-}
 
 function checkPortAvailability(port) {
   return new Promise((resolve) => {
