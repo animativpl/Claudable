@@ -3,8 +3,19 @@ import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 
 export default defineConfig([
   {
-    // Vendored-style shims for react-icons, not application code.
-    ignores: ["stubs/**"],
+    // Vendored-style shims for react-icons, not application code, plus
+    // .gitignore'd build/generated output that ESLint 9's flat config does
+    // not exclude automatically (it does not read .gitignore).
+    ignores: [
+      "stubs/**",
+      "data/**",
+      "dist/**",
+      "release/**",
+      "coverage/**",
+      "out/**",
+      "build/**",
+      "next-env.d.ts",
+    ],
   },
   {
     extends: [...nextCoreWebVitals],
