@@ -16,6 +16,7 @@ import { getDefaultModelForCli, getModelDefinitionsForCli, getModelDisplayName, 
 import { randomId } from '@/lib/utils/random-id';
 import { toBrowsablePreviewUrl } from '@/lib/utils/preview-url';
 import { getFileLanguage, escapeHtml } from '@/lib/utils/file-display';
+import { writeStoredModel } from '@/lib/utils/model-selection-storage';
 
 // No longer loading ProjectSettings (managed by global settings on main page)
 
@@ -120,7 +121,7 @@ export default function ChatPage() {
     const sanitized = normalizeModelId(null, model);
     setSelectedModel(sanitized);
     if (typeof window !== 'undefined') {
-      sessionStorage.setItem('selectedModel', sanitized);
+      writeStoredModel(sanitized);
     }
   }, []);
 
@@ -225,7 +226,7 @@ export default function ChatPage() {
     // Store the selected model in sessionStorage when returning
     const modelFromUrl = searchParams?.get('model');
     if (modelFromUrl) {
-      sessionStorage.setItem('selectedModel', normalizeModelId(null, modelFromUrl));
+      writeStoredModel(normalizeModelId(null, modelFromUrl));
     }
 
     // Don't show the initial prompt in the input field

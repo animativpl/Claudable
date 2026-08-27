@@ -7,6 +7,7 @@ import CreateProjectModal from '@/components/modals/CreateProjectModal';
 import GlobalSettings from '@/components/settings/GlobalSettings';
 import { useGlobalSettings } from '@/contexts/GlobalSettingsContext';
 import { getDefaultModelForCli, getModelDisplayName, normalizeModelId } from '@/lib/constants/cliModels';
+import { readStoredModel, writeStoredModel } from '@/lib/utils/model-selection-storage';
 import type { Project as ProjectSummary } from '@/types/project';
 
 // Ensure fetch is available
@@ -66,7 +67,7 @@ export default function HomePage() {
       setUsingGlobalDefaults(true);
     } else {
       // Navigation within session - check for stored selections
-      const storedModelRaw = sessionStorage.getItem('selectedModel');
+      const storedModelRaw = readStoredModel();
 
       if (storedModelRaw) {
         setSelectedModel(normalizeModelId(null, storedModelRaw));
@@ -93,7 +94,7 @@ export default function HomePage() {
   // Save selections to sessionStorage when they change
   useEffect(() => {
     if (!isInitialLoad && selectedModel) {
-      sessionStorage.setItem('selectedModel', normalizeModelId(null, selectedModel));
+      writeStoredModel(normalizeModelId(null, selectedModel));
     }
   }, [selectedModel, isInitialLoad]);
 
