@@ -6,7 +6,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getProjectById } from '@/lib/services/project';
 import type { ProjectFileEntry } from '@/types/backend';
-import { resolveProjectRoot } from '@/lib/utils/project-path';
+import { resolveProjectRoot, resolveSafeProjectPath } from '@/lib/utils/project-path';
 
 const EXCLUDED_DIRECTORIES = new Set([
   'node_modules',
@@ -32,25 +32,11 @@ export class FileBrowserError extends Error {
 }
 
 async function resolveSafePath(base: string, target: string): Promise<string> {
-  const normalizedBase = path.resolve(base);
-  const resolvedTarget = path.resolve(normalizedBase, target);
-
-  // Validate base path exists
   try {
-    await fs.access(normalizedBase);
+    return resolveSafeProjectPath(base, target);
   } catch {
-    throw new FileBrowserError('Base path does not exist', 400);
-  }
-
-  // Validate path is within base directory
-  if (
-    resolvedTarget !== normalizedBase &&
-    !resolvedTarget.startsWith(normalizedBase + path.sep)
-  ) {
     throw new FileBrowserError('Path traversal not allowed', 400);
   }
-
-  return resolvedTarget;
 }
 
 function normalizeRelativePath(dir: string): string {
