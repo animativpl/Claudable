@@ -189,10 +189,5 @@ export function useUserRequests({ projectId }: UseUserRequestsOptions) {
     createRequest,
     startRequest,
     completeRequest,
-    // Legacy interface compatibility
-    requests: [],
-    activeRequests: [],
-    getRequest: () => undefined,
-    clearCompletedRequests: () => {}
   };
 }

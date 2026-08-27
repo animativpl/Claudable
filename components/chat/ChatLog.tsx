@@ -1994,27 +1994,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     return toRelativePath(text);
   };
 
-const ToolResultMessage = ({
-  message,
-  metadata,
-  isExpanded,
-  onToggle,
-}: {
-  message: ChatMessage;
-  metadata?: Record<string, unknown> | null;
-  isExpanded?: boolean;
-  onToggle?: (nextExpanded: boolean) => void;
-}) => {
-  return (
-    <ToolMessage
-      content={normalizeChatContent(message.content)}
-      metadata={metadata ?? undefined}
-      isExpanded={isExpanded}
-      onToggle={onToggle}
-    />
-  );
-};
-
   // Function to clean user messages by removing think hard instruction and chat mode instructions
   const cleanUserMessage = (content: string) => {
     if (!content) return content;
@@ -2623,9 +2602,9 @@ const ToolResultMessage = ({
                   // Agent message - full width, no box
                   <div className="w-full">
                     {message.messageType === 'tool_result' ? (
-                      <ToolResultMessage
-                        message={message}
-                        metadata={messageMetadata}
+                      <ToolMessage
+                        content={normalizeChatContent(message.content)}
+                        metadata={messageMetadata ?? undefined}
                         isExpanded={toolExpanded}
                         onToggle={onToggleTool}
                       />

@@ -24,19 +24,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 // Claude is the only agent, so its brand color is used unconditionally.
 const CLAUDE_BRAND_COLOR = '#DE7356';
 
-// Function to convert hex to CSS filter for tinting white images
-// Since the original image is white (#FFFFFF), we can apply filters more accurately
-const hexToFilter = (hex: string): string => {
-  // For white source images, we need to invert and adjust
-  const filters: { [key: string]: string } = {
-    '#DE7356': 'brightness(0) saturate(100%) invert(52%) sepia(73%) saturate(562%) hue-rotate(336deg) brightness(95%) contrast(91%)',
-    '#000000': 'brightness(0) saturate(100%)',
-    '#11A97D': 'brightness(0) saturate(100%) invert(57%) sepia(30%) saturate(747%) hue-rotate(109deg) brightness(90%) contrast(92%)',
-    '#1677FF': 'brightness(0) saturate(100%) invert(40%) sepia(86%) saturate(1806%) hue-rotate(201deg) brightness(98%) contrast(98%)',
-  };
-  return filters[hex] || filters['#DE7356'];
-};
-
 type Entry = { path: string; type: 'file'|'dir'; size?: number };
 type ProjectStatus = 'initializing' | 'active' | 'failed';
 
