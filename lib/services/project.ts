@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import { normalizeModelId, getDefaultModelForCli } from '@/lib/constants/cliModels';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
 import { normalizeTemplateType } from '@/lib/templates/meta';
+import { directoryExists } from '@/lib/utils/fs';
 
 /**
  * Retrieve all projects
@@ -148,14 +149,6 @@ export async function updateProjectStatus(
     },
   });
   console.log(`[ProjectService] Updated project status: ${id} -> ${status}`);
-}
-
-async function directoryExists(targetPath: string): Promise<boolean> {
-  try {
-    return (await fs.stat(targetPath)).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 /**

@@ -13,6 +13,7 @@ import { PREVIEW_CONFIG } from '@/lib/config/constants';
 import { killProcessTree } from './process-tree';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
 import { prisma } from '@/lib/db/client';
+import { directoryExists } from '@/lib/utils/fs';
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -219,15 +220,6 @@ async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
     return true;
-  } catch {
-    return false;
-  }
-}
-
-async function directoryExists(targetPath: string): Promise<boolean> {
-  try {
-    const stat = await fs.stat(targetPath);
-    return stat.isDirectory();
   } catch {
     return false;
   }
