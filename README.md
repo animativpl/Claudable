@@ -114,7 +114,7 @@ ownership of files in the mounted `.claude` directory.
   guarded the same way as `HOST_UID`: Compose refuses to start without it. An
   empty value would not stop the app at startup — but `lib/crypto.ts` now
   throws the first time it's actually asked to encrypt or decrypt anything
-  (e.g. saving a service token or env var), rather than silently generating
+  (e.g. saving an encrypted env var), rather than silently generating
   a new random key on every container start the way it used to.
 - **Ports**: published on `127.0.0.1` only. The app has no authentication and
   gives the agent a Bash tool, so exposing it on every network interface

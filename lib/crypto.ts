@@ -5,8 +5,7 @@ const IV_LENGTH = 16;
 
 // Resolved lazily (inside encrypt/decrypt) rather than at module scope so that
 // `docker build` -- which has no ENCRYPTION_KEY and never calls encrypt/decrypt,
-// only the runtime container does -- keeps working. See commit message for the
-// full rationale.
+// only the runtime container does -- keeps working.
 function requireEncryptionKey(): string {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
