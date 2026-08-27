@@ -43,7 +43,6 @@ How to start? Simply login to Claude Code, start Claudable, and describe what yo
 - **Zero Setup, Instant Launch**: No complex sandboxes, no API key, no database headaches - just start building immediately
 - **Beautiful UI**: Generate beautiful UI with Tailwind CSS and shadcn/ui
 - **GitHub Integration**: Automatic version control — create or connect a repository and push commits as you build
-- **Desktop App**: Available as Electron desktop application for Mac, Windows, and Linux
 
 ## AI Coding Agent
 
@@ -60,9 +59,8 @@ How to start? Simply login to Claude Code, start Claudable, and describe what yo
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:
-- Node.js 22.12+ (`package.json` requires `>=22.12.0`, driven by Electron 44's
-  own engine requirement; the Docker image below ships Node 22, and generated
-  Astro projects also need Node ≥ 22.12 to start)
+- Node.js 22.12+ (`package.json` requires `>=22.12.0`; the Docker image below
+  ships Node 22, and generated Astro projects also need Node ≥ 22.12 to start)
 - Claude Code (already logged in)
 - Git
 
@@ -123,13 +121,12 @@ ownership of files in the mounted `.claude` directory.
   fails loudly with a "no free port" error — that's the limit of the feature,
   not a documentation gap.
 - **Node version**: the image requires Node ≥ 22.12, and this project's own
-  `engines.node` in `package.json` now states the same floor — but for a
-  different reason. The image's floor exists because generated projects'
-  `astro@7` refuses to start below Node 22.12; this project's own floor comes
-  from `electron`, a devDependency that itself requires Node ≥ 22.12. The two
-  numbers coincide; the concerns they describe — the platform Claudable runs
-  on, versus the runtime it hands to generated projects inside the
-  container — remain separate.
+  `engines.node` in `package.json` states the same floor. The image's floor
+  exists because generated projects' `astro@7` refuses to start below Node
+  22.12; this project's own floor is simply declared in `package.json`, not
+  derived from any dependency. The two numbers coincide; the concerns they
+  describe — the platform Claudable runs on, versus the runtime it hands to
+  generated projects inside the container — remain separate.
 - **`CLAUDABLE_DATA`** (default `./data`): mounted to `/data` in the
   container. Holds projects, the SQLite database, and global settings. Set
   this to keep projects outside the repository, e.g.
@@ -223,23 +220,6 @@ The `npm install` command automatically handles the complete setup:
 1. **Port Configuration**: Detects available ports and creates `.env` files
 2. **Dependencies**: Installs all required Node.js packages
 3. **Database Setup**: SQLite database auto-creates at `data/cc.db` on first run
-
-### Desktop App (Electron)
-
-Build and run Claudable as a desktop application:
-
-```bash
-# Development mode
-npm run dev:desktop
-
-# Build desktop app
-npm run build:desktop
-
-# Package for specific platforms
-npm run package:mac      # macOS
-npm run package:win      # Windows
-npm run package:linux    # Linux
-```
 
 ### Additional Commands
 ```bash
