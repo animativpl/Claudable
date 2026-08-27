@@ -22,7 +22,6 @@ export interface Project {
   templateType?: TemplateType;
   activeClaudeSessionId?: string;
   selectedModel?: string;
-  settings?: string; // JSON string
   createdAt: Date;
   updatedAt: Date;
   lastActiveAt: Date;
@@ -47,7 +46,6 @@ export interface UpdateProjectInput {
   previewUrl?: string | null;
   previewPort?: number | null;
   selectedModel?: string;
-  settings?: string;
   activeClaudeSessionId?: string;
   repoPath?: string | null;
 }

@@ -70,7 +70,6 @@ export async function PUT(
       previewUrl: body.previewUrl,
       previewPort: body.previewPort,
       selectedModel: body.selectedModel,
-      settings: body.settings,
     };
 
     const project = await updateProject(project_id, input);

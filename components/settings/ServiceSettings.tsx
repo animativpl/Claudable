@@ -14,7 +14,6 @@ interface ServiceConnection {
   service_data: any;
   created_at: string;
   updated_at?: string;
-  last_sync_at?: string;
 }
 
 interface Service {

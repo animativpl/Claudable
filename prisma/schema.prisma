@@ -50,9 +50,6 @@ model Project {
   // CLI Preferences
   selectedModel String? @map("selected_model") // claude-opus-5 | claude-sonnet-5 | claude-haiku-4-5
 
-  // Settings (JSON)
-  settings    String? // JSON string for additional settings
-
   // Timestamps
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -63,8 +60,6 @@ model Project {
   sessions              Session[]
   envVars               EnvVar[]
   serviceConnections    ProjectServiceConnection[]
-  commits               Commit[]
-  toolUsages            ToolUsage[]
   userRequests          UserRequest[]
 
   @@map("projects")
@@ -87,14 +82,6 @@ model Message {
   sessionId      String? @map("session_id")
   conversationId String? @map("conversation_id")
 
-  // Performance tracking
-  durationMs Int? @map("duration_ms")
-  tokenCount Int? @map("token_count")
-  costUsd    Float? @map("cost_usd")
-
-  // Git integration
-  commitSha String? @map("commit_sha")
-
   // CLI source
   cliSource String? @map("cli_source") // claude
 
@@ -107,7 +94,6 @@ model Message {
   // Relations
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   session Session? @relation(fields: [sessionId], references: [id])
-  toolUsages ToolUsage[]
 
   @@index([projectId])
   @@index([sessionId])
@@ -161,7 +147,6 @@ model ProjectServiceConnection {
   // Timestamps
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
-  lastSyncAt  DateTime? @map("last_sync_at")
 
   // Relations
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -193,55 +178,6 @@ model EnvVar {
   @@unique([projectId, key])
   @@index([projectId])
   @@map("env_vars")
-}
-
-model Commit {
-  id        String   @id @default(cuid())
-  projectId String   @map("project_id")
-
-  // Commit info
-  sha         String
-  message     String
-  authorName  String  @map("author_name")
-  authorEmail String  @map("author_email")
-
-  // Timestamp
-  committedAt DateTime @map("committed_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  // Relations
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([projectId])
-  @@index([committedAt])
-  @@map("commits")
-}
-
-model ToolUsage {
-  id         String   @id @default(cuid())
-  projectId  String   @map("project_id")
-  messageId  String?  @map("message_id")
-
-  // Tool info
-  toolName   String   @map("tool_name") // Read, Write, Edit, Bash, etc.
-  toolInput  String   @map("tool_input") // JSON string
-  toolOutput String?  @map("tool_output")
-  error      String?
-
-  // Performance
-  durationMs Int?     @map("duration_ms")
-
-  // Timestamp
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  // Relations
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  message Message? @relation(fields: [messageId], references: [id])
-
-  @@index([projectId])
-  @@index([messageId])
-  @@index([toolName])
-  @@map("tool_usages")
 }
 
 model UserRequest {

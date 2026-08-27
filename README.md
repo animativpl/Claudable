@@ -279,7 +279,9 @@ Claudable uses SQLite for local development. The database automatically initiali
 
 ### Upgrading from a Previous Version
 
-This branch drops three columns from the `Project` model. On an existing
+This branch drops two tables (`commits`, `tool_usages`) and six columns
+(`Message.durationMs`/`tokenCount`/`costUsd`/`commitSha`,
+`ProjectServiceConnection.lastSyncAt`, `Project.settings`). On an existing
 installation, the next `npm run dev` runs `prisma db push` without a
 data-loss flag, so Prisma asks for confirmation: an interactive terminal
 gets a prompt, a non-interactive one gets an error. Nothing is deleted

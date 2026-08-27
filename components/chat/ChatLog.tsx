@@ -1007,7 +1007,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [needsHistoryRefresh, setNeedsHistoryRefresh] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const sessionPollRef = useRef<NodeJS.Timeout | null>(null);
   const historyPollRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedInitialDataRef = useRef(false);
   const [isSseConnected, setIsSseConnected] = useState(false);
@@ -1820,88 +1819,6 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     }
   }, [projectId, hasMoreMessages, messages.length, ensureStableMessageId]);
 
-  // Poll session status periodically
-  const startSessionPolling = useCallback(
-    (sessionId: string) => {
-      if (sessionPollRef.current) {
-        clearInterval(sessionPollRef.current);
-      }
-
-      sessionPollRef.current = setInterval(async () => {
-        try {
-          const response = await fetch(
-            `${API_BASE}/api/chat/${projectId}/sessions/${sessionId}/status`
-          );
-          if (response.ok) {
-            const sessionStatus = await response.json();
-
-            if (sessionStatus.status !== 'active') {
-              setActiveSession(null);
-              parentHandlersRef.current.onSessionStatusChange?.(false);
-
-              if (sessionPollRef.current) {
-                clearInterval(sessionPollRef.current);
-                sessionPollRef.current = null;
-              }
-
-              // Refresh the tail of the history without showing the skeleton.
-              setNeedsHistoryRefresh(true);
-            }
-          }
-        } catch (error) {
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('Error polling session status:', error);
-          }
-        }
-      }, 3000); // Poll every 3 seconds
-    },
-    [projectId]
-  );
-
-  // Check for active session on component mount
-  const checkActiveSession = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/api/chat/${projectId}/active-session`);
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data) {
-          const session = result.data;
-          const sessionData: ActiveSession = {
-            status: session.status,
-            sessionId: session.sessionId,
-          };
-          setActiveSession(sessionData);
-
-          if (session.status === 'active' || session.status === 'running') {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('Found active session:', session.sessionId);
-            }
-            parentHandlersRef.current.onSessionStatusChange?.(true);
-
-            // Start polling session status
-            startSessionPolling(session.sessionId);
-          } else {
-            parentHandlersRef.current.onSessionStatusChange?.(false);
-          }
-        } else {
-          // No active session found
-          setActiveSession(null);
-          parentHandlersRef.current.onSessionStatusChange?.(false);
-        }
-      } else {
-        // 404 means no active session, which is normal
-        setActiveSession(null);
-        parentHandlersRef.current.onSessionStatusChange?.(false);
-      }
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('Failed to check active session:', error);
-      }
-      setActiveSession(null);
-      parentHandlersRef.current.onSessionStatusChange?.(false);
-    }
-  }, [projectId, startSessionPolling]);
-
   // Enhanced polling system to prevent conflicts with real-time connections
   useEffect(() => {
     if (!projectId) return;
@@ -1959,18 +1876,13 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     const loadData = async () => {
       if (mounted) {
         await loadChatHistory({ showLoading: true });
-        await checkActiveSession();
       }
     };
-    
+
     loadData();
-    
+
     return () => {
       mounted = false;
-      if (sessionPollRef.current) {
-        clearInterval(sessionPollRef.current);
-        sessionPollRef.current = null;
-      }
     };
   // Ładowanie startowe dla danego projektu. Deps to wyłącznie projectId:
   // handlery od rodzica są niestabilne, a ich zmiana nie jest powodem, by
