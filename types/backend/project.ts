@@ -2,7 +2,8 @@
  * Project-related types
  */
 
-export type ProjectStatus = 'idle' | 'running' | 'stopped' | 'error';
+import type { ProjectStatus } from '@/types/project';
+export type { ProjectStatus };
 
 import type { TemplateId as TemplateType } from '@/lib/templates/meta';
 export type { TemplateType };
