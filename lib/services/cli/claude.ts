@@ -28,7 +28,7 @@ import path from 'path';
 
 type ToolAction = 'Edited' | 'Created' | 'Read' | 'Deleted' | 'Generated' | 'Searched' | 'Executed';
 
-const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
+export const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
   read: 'Read',
   read_file: 'Read',
   'read-file': 'Read',
@@ -60,6 +60,14 @@ const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
   todo_write: 'Generated',
   todo: 'Generated',
   plan_write: 'Generated',
+  task_create: 'Generated',
+  taskcreate: 'Generated',
+  task_update: 'Generated',
+  taskupdate: 'Generated',
+  task_get: 'Generated',
+  taskget: 'Generated',
+  task_list: 'Generated',
+  tasklist: 'Generated',
 };
 
 const normalizeAction = (value: unknown): ToolAction | undefined => {
@@ -104,7 +112,7 @@ const normalizeAction = (value: unknown): ToolAction | undefined => {
   return undefined;
 };
 
-const inferActionFromToolName = (toolName: unknown): ToolAction | undefined => {
+export const inferActionFromToolName = (toolName: unknown): ToolAction | undefined => {
   if (typeof toolName !== 'string') return undefined;
   const normalized = toolName.trim().toLowerCase();
   if (!normalized) return undefined;

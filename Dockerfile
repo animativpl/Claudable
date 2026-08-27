@@ -93,11 +93,21 @@ COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/prisma ./prisma
 
 # SDK agenta trace standalone bundluje do JavaScriptu, więc samego pakietu nie
-# kopiuje — a zbundlowany kod spawnuje `cli.js` po ścieżce zamrożonej w
-# buildzie: /app/node_modules/@anthropic-ai/claude-agent-sdk/cli.js. Bez tego
-# katalogu pierwsza instrukcja wysłana do agenta pada na "Cannot find module",
-# czyli cała funkcja produktu, i to dopiero przy pierwszym użyciu — start
-# kontenera wygląda zdrowo.
+# kopiuje. Od Agent SDK 0.3 (zmierzone rozpakowaniem tarballa) SDK nie ma już
+# `cli.js` — resolvuje w runtime jeden z ośmiu platformowych
+# `optionalDependencies` (`@anthropic-ai/claude-agent-sdk-linux-x64` na tym
+# obrazie, ~236 MB rozpakowane) przez `createRequire(...).resolve(...)`. Bez
+# tego katalogu pierwsza instrukcja wysłana do agenta pada na "Native CLI
+# binary ... not found", czyli cała funkcja produktu, i to dopiero przy
+# pierwszym użyciu — start kontenera wygląda zdrowo.
+#
+# Ten pakiet platformowy dzieli scope @anthropic-ai z głównym pakietem SDK,
+# więc poniższy COPY (niezmieniony od czasu, gdy kopiował tylko cli.js) powinien
+# go już przenosić — tak npm układa pakiety scope'owane. NIEZWERYFIKOWANE
+# uruchomieniem obrazu: Task 5 Step 10 planu aktualizacji zależności nie mógł
+# się wykonać, bo na maszynie builda demon dockera był wyłączony i nie było jak
+# go wystartować bez roota. Do potwierdzenia przy pierwszym realnym buildzie:
+# test -x /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-<arch>/claude
 COPY --from=build --chown=node:node /app/node_modules/@anthropic-ai ./node_modules/@anthropic-ai
 
 # Poza /app, żeby nie mieszać się z `node_modules` z trace'u standalone —

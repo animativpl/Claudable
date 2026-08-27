@@ -49,6 +49,14 @@ const TOOL_NAME_ACTION_MAP: Record<string, ToolAction> = {
   todo_write: 'Generated',
   todo: 'Generated',
   plan_write: 'Generated',
+  task_create: 'Generated',
+  taskcreate: 'Generated',
+  task_update: 'Generated',
+  taskupdate: 'Generated',
+  task_get: 'Generated',
+  taskget: 'Generated',
+  task_list: 'Generated',
+  tasklist: 'Generated',
 };
 
 const normalizeAction = (value: unknown): ToolAction | undefined => {
@@ -840,7 +848,7 @@ const ToolMessage = ({
     }
     
     if (!filePath) {
-      const toolMatch = processedContent.match(/\*\*(Read|LS|Glob|Grep|Edit|Write|Bash|MultiEdit|TodoWrite)\*\*\s*`?([^`\n]+)`?/);
+      const toolMatch = processedContent.match(/\*\*(Read|LS|Glob|Grep|Edit|Write|Bash|MultiEdit|TodoWrite|TaskCreate|TaskUpdate|TaskGet|TaskList)\*\*\s*`?([^`\n]+)`?/);
       if (toolMatch) {
         const toolName = toolMatch[1];
         const toolArg = toolMatch[2].trim();
@@ -881,6 +889,14 @@ const ToolMessage = ({
           case 'TodoWrite':
             action = 'Generated';
             filePath = 'Todo List';
+            cleanContent = undefined;
+            break;
+          case 'TaskCreate':
+          case 'TaskUpdate':
+          case 'TaskGet':
+          case 'TaskList':
+            action = 'Generated';
+            filePath = 'Task List';
             cleanContent = undefined;
             break;
         }
@@ -1573,7 +1589,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     if (content.includes('[object Object]')) return true;
     
     const toolPatterns = [
-      /\*\*(Read|LS|Glob|Grep|Edit|Write|Bash|Task|WebFetch|WebSearch|MultiEdit|TodoWrite)\*\*/,
+      /\*\*(Read|LS|Glob|Grep|Edit|Write|Bash|Task|TaskCreate|TaskUpdate|TaskGet|TaskList|WebFetch|WebSearch|MultiEdit|TodoWrite)\*\*/,
     ];
     
     return toolPatterns.some(pattern => pattern.test(content));
