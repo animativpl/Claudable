@@ -4,13 +4,10 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { getProjectById } from '@/lib/services/project';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
+import { resolveAssetsPath, mirrorAssetToPublic } from '@/lib/services/assets';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
-}
-
-function resolveAssetsPath(projectId: string): string {
-  return path.join(resolveProjectRoot(projectId), 'assets');
 }
 
 export async function POST(request: Request, { params }: RouteContext) {
@@ -44,41 +41,8 @@ export async function POST(request: Request, { params }: RouteContext) {
     const arrayBuffer = await file.arrayBuffer();
     await fs.writeFile(resolvedAbsolutePath, Buffer.from(arrayBuffer));
 
-    let hostPublicPath: string | null = null;
-    let projectPublicPath: string | null = null;
-    let publicUrl: string | null = null;
-    try {
-      const rootUploadsDir = path.join(process.cwd(), 'public', 'uploads');
-      await fs.mkdir(rootUploadsDir, { recursive: true });
-      const hostDestination = path.join(rootUploadsDir, uniqueName);
-      try {
-        await fs.access(hostDestination);
-      } catch {
-        await fs.copyFile(resolvedAbsolutePath, hostDestination);
-      }
-      hostPublicPath = hostDestination;
-      publicUrl = `/uploads/${uniqueName}`;
-    } catch (copyError) {
-      console.warn('[Assets Upload] Failed to mirror asset into application public/uploads:', copyError);
-    }
-
-    try {
-      const projectRoot = resolveProjectRoot(project_id, project.repoPath);
-      const uploadsDir = path.join(projectRoot, 'public', 'uploads');
-      await fs.mkdir(uploadsDir, { recursive: true });
-      projectPublicPath = path.join(uploadsDir, uniqueName);
-      try {
-        await fs.access(projectPublicPath);
-      } catch {
-        await fs.copyFile(resolvedAbsolutePath, projectPublicPath);
-      }
-    } catch (copyError) {
-      console.warn('[Assets Upload] Failed to mirror asset into project public/uploads:', copyError);
-      projectPublicPath = null;
-      if (!hostPublicPath) {
-        publicUrl = null;
-      }
-    }
+    const projectRoot = resolveProjectRoot(project_id, project.repoPath);
+    const { publicPath, publicUrl } = await mirrorAssetToPublic(projectRoot, uniqueName, resolvedAbsolutePath);
 
     return NextResponse.json({
       success: true,
@@ -86,7 +50,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       absolute_path: resolvedAbsolutePath,
       filename: uniqueName,
       original_filename: originalName,
-      public_path: hostPublicPath ?? projectPublicPath,
+      public_path: publicPath,
       public_url: publicUrl,
     });
   } catch (error) {

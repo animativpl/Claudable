@@ -25,6 +25,7 @@ import {
   markUserRequestAsProcessing,
 } from '@/lib/services/user-requests';
 import { resolveProjectRoot, resolveSafeProjectPath } from '@/lib/utils/project-path';
+import { resolveAssetsPath, mirrorAssetToPublic } from '@/lib/services/assets';
 
 interface RouteContext {
   params: Promise<{ project_id: string }>;
@@ -36,59 +37,11 @@ function coerceString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function resolveAssetsPath(projectId: string): string {
-  return path.join(resolveProjectRoot(projectId, null), 'assets');
-}
-
 function ensureAbsoluteAssetPath(projectId: string, inputPath: string): string | null {
   try {
     return resolveSafeProjectPath(resolveProjectRoot(projectId, null), inputPath);
   } catch {
     return null;
-  }
-}
-
-async function mirrorAssetToPublic(
-  projectRoot: string,
-  filename: string,
-  sourcePath: string,
-): Promise<{ publicPath: string | null; publicUrl: string | null }> {
-  const resolvedSourcePath = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(process.cwd(), sourcePath);
-  const hostUploadsDir = path.join(process.cwd(), 'public', 'uploads');
-  let hostPublicPath: string | null = null;
-
-  try {
-    await fs.mkdir(hostUploadsDir, { recursive: true });
-    const destinationPath = path.join(hostUploadsDir, filename);
-    try {
-      await fs.access(destinationPath);
-    } catch {
-      await fs.copyFile(resolvedSourcePath, destinationPath);
-    }
-    hostPublicPath = destinationPath;
-  } catch (error) {
-    console.warn('[API] Failed to mirror asset into application public/uploads:', error);
-  }
-
-  try {
-    const uploadsDir = path.join(projectRoot, 'public', 'uploads');
-    await fs.mkdir(uploadsDir, { recursive: true });
-    const destinationPath = path.join(uploadsDir, filename);
-    try {
-      await fs.access(destinationPath);
-    } catch {
-      await fs.copyFile(resolvedSourcePath, destinationPath);
-    }
-    return {
-      publicPath: hostPublicPath ?? destinationPath,
-      publicUrl: hostPublicPath ? `/uploads/${filename}` : null,
-    };
-  } catch (error) {
-    console.warn('[API] Failed to mirror asset into project public/uploads:', error);
-    if (hostPublicPath) {
-      return { publicPath: hostPublicPath, publicUrl: `/uploads/${filename}` };
-    }
-    return { publicPath: null, publicUrl: null };
   }
 }
 
