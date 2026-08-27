@@ -1,8 +1,22 @@
 import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-cbc';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
 const IV_LENGTH = 16;
+
+// Resolved lazily (inside encrypt/decrypt) rather than at module scope so that
+// `docker build` -- which has no ENCRYPTION_KEY and never calls encrypt/decrypt,
+// only the runtime container does -- keeps working. See commit message for the
+// full rationale.
+function requireEncryptionKey(): string {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error(
+      'ENCRYPTION_KEY is not set. Set it explicitly before encrypting or ' +
+      'decrypting (scripts/setup-env.js generates one for local dev).'
+    );
+  }
+  return key;
+}
 
 /**
  * Encrypt a string using AES-256-CBC
@@ -13,7 +27,7 @@ export function encrypt(text: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(
     ALGORITHM,
-    Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex'),
+    Buffer.from(requireEncryptionKey().slice(0, 64), 'hex'),
     iv
   );
 
@@ -35,7 +49,7 @@ export function decrypt(text: string): string {
 
   const decipher = crypto.createDecipheriv(
     ALGORITHM,
-    Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex'),
+    Buffer.from(requireEncryptionKey().slice(0, 64), 'hex'),
     iv
   );
 

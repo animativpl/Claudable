@@ -112,10 +112,10 @@ ownership of files in the mounted `.claude` directory.
 - **`ENCRYPTION_KEY`**: secrets go through `.env.docker`, a file outside the
   repository (git-ignored). Also left blank in the example on purpose, and
   guarded the same way as `HOST_UID`: Compose refuses to start without it. An
-  empty value would not stop the app — `lib/crypto.ts` falls back to a random
-  in-memory key, a *different* one on every container start, so the first
-  restart would leave every stored service token and encrypted env var
-  undecryptable.
+  empty value would not stop the app at startup — but `lib/crypto.ts` now
+  throws the first time it's actually asked to encrypt or decrypt anything
+  (e.g. saving a service token or env var), rather than silently generating
+  a new random key on every container start the way it used to.
 - **Ports**: published on `127.0.0.1` only. The app has no authentication and
   gives the agent a Bash tool, so exposing it on every network interface
   would be remote code execution for anyone on the same network. Reaching it
