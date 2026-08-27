@@ -340,7 +340,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                 <div>
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Service Tokens</h3>
                   <p className="text-sm text-gray-600 mb-6">
-                    Configure your API tokens for external services. These tokens are stored encrypted and used across all projects.
+                    Configure your API tokens for external services. These tokens are stored locally in plain text and used across all projects.
                   </p>
                   
                   <div className="space-y-4">
