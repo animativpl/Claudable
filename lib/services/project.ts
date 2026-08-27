@@ -21,7 +21,7 @@ export async function getAllProjects(): Promise<Project[]> {
   });
   return projects.map(project => ({
     ...project,
-    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(project.selectedModel ?? undefined),
   })) as Project[];
 }
 
@@ -35,7 +35,7 @@ export async function getProjectById(id: string): Promise<Project | null> {
   if (!project) return null;
   return {
     ...project,
-    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(project.selectedModel ?? undefined),
   } as Project;
 }
 
@@ -55,7 +55,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       description: input.description,
       initialPrompt: input.initialPrompt,
       repoPath: projectPath,
-      selectedModel: normalizeModelId(null, input.selectedModel ?? getDefaultModelForCli(null)),
+      selectedModel: normalizeModelId(input.selectedModel ?? getDefaultModelForCli()),
       status: 'idle',
       templateType: normalizeTemplateType(input.templateType),
       lastActiveAt: new Date(),
@@ -67,7 +67,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   console.log(`[ProjectService] Created project: ${project.id}`);
   return {
     ...project,
-    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(project.selectedModel ?? undefined),
   } as Project;
 }
 
@@ -79,7 +79,7 @@ export async function updateProject(
   input: UpdateProjectInput
 ): Promise<Project> {
   const normalizedModel = input.selectedModel
-    ? normalizeModelId(null, input.selectedModel)
+    ? normalizeModelId(input.selectedModel)
     : undefined;
 
   const project = await prisma.project.update({
@@ -96,7 +96,7 @@ export async function updateProject(
   console.log(`[ProjectService] Updated project: ${id}`);
   return {
     ...project,
-    selectedModel: normalizeModelId(null, project.selectedModel ?? undefined),
+    selectedModel: normalizeModelId(project.selectedModel ?? undefined),
   } as Project;
 }
 

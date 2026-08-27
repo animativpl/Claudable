@@ -17,7 +17,7 @@ interface GlobalSettingsProps {
   initialTab?: 'general' | 'ai-agents' | 'services' | 'about';
 }
 
-const CLAUDE_MODELS = getModelDefinitionsForCli(null).map(({ id, name }) => ({ id, name }));
+const CLAUDE_MODELS = getModelDefinitionsForCli().map(({ id, name }) => ({ id, name }));
 
 // Global settings are provided by context
 
@@ -75,9 +75,9 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
       if (response.ok) {
         const settings = await response.json();
         if (settings?.cli_settings) {
-          for (const [cli, config] of Object.entries(settings.cli_settings)) {
+          for (const [, config] of Object.entries(settings.cli_settings)) {
             if (config && typeof config === 'object' && 'model' in config) {
-              (config as any).model = normalizeModelId(cli, (config as any).model as string);
+              (config as any).model = normalizeModelId((config as any).model as string);
             }
           }
         }
@@ -103,9 +103,9 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
     try {
       const payload = JSON.parse(JSON.stringify(globalSettings));
       if (payload?.cli_settings) {
-        for (const [cli, config] of Object.entries(payload.cli_settings)) {
+        for (const [, config] of Object.entries(payload.cli_settings)) {
           if (config && typeof config === 'object' && 'model' in config) {
-            (config as any).model = normalizeModelId(cli, (config as any).model as string);
+            (config as any).model = normalizeModelId((config as any).model as string);
           }
         }
       }
@@ -154,7 +154,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
         ...(prev?.cli_settings ?? {}),
         claude: {
           ...(prev?.cli_settings?.claude ?? {}),
-          model: normalizeModelId(null, modelId)
+          model: normalizeModelId(modelId)
         }
       }
     }));

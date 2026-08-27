@@ -20,7 +20,7 @@ type GlobalSettingsCtx = {
 
 const defaultSettings: GlobalAISettings = {
   cli_settings: {
-    claude: { model: getDefaultModelForCli(null) },
+    claude: { model: getDefaultModelForCli() },
   },
 };
 

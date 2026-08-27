@@ -6,7 +6,7 @@ import { TEMPLATE_META_LIST, DEFAULT_TEMPLATE_ID, type TemplateId } from '@/lib/
 import { getModelDefinitionsForCli, getDefaultModelForCli, normalizeModelId } from '@/lib/constants/cliModels';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
-const CLAUDE_MODELS = getModelDefinitionsForCli(null);
+const CLAUDE_MODELS = getModelDefinitionsForCli();
 
 function slugify(name: string): string {
   return name
@@ -30,7 +30,7 @@ export default function CreateProjectModal({ isOpen, onClose, defaultModel }: Cr
   const [projectId, setProjectId] = useState('');
   const [idManuallyEdited, setIdManuallyEdited] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateId>(DEFAULT_TEMPLATE_ID);
-  const [selectedModel, setSelectedModel] = useState(defaultModel ?? getDefaultModelForCli(null));
+  const [selectedModel, setSelectedModel] = useState(defaultModel ?? getDefaultModelForCli());
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export default function CreateProjectModal({ isOpen, onClose, defaultModel }: Cr
       setProjectId('');
       setIdManuallyEdited(false);
       setSelectedTemplate(DEFAULT_TEMPLATE_ID);
-      setSelectedModel(defaultModel ?? getDefaultModelForCli(null));
+      setSelectedModel(defaultModel ?? getDefaultModelForCli());
       setError(null);
       setTimeout(() => nameInputRef.current?.focus(), 50);
     }
@@ -199,7 +199,7 @@ export default function CreateProjectModal({ isOpen, onClose, defaultModel }: Cr
                       onClick={() => setShowModelDropdown((v) => !v)}
                       className="w-full px-3 py-2 text-sm text-left border border-gray-200 rounded-lg bg-white text-gray-700 hover:bg-gray-50 flex items-center justify-between transition-colors"
                     >
-                      <span>{CLAUDE_MODELS.find((m) => m.id === selectedModel)?.name ?? normalizeModelId(null, selectedModel)}</span>
+                      <span>{CLAUDE_MODELS.find((m) => m.id === selectedModel)?.name ?? normalizeModelId(selectedModel)}</span>
                       <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-gray-400">
                         <path d="M6 9l6 6 6-6"/>
                       </svg>

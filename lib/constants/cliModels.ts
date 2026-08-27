@@ -7,21 +7,20 @@ import {
 } from './claudeModels';
 
 /**
- * Claude Code jest jedynym agentem. Te funkcje trzymają parametr `cli`, bo
- * wołają je dziesiątki miejsc, ale nie rozgałęziają już na nim niczego.
+ * Claude Code jest jedynym agentem.
  */
-export function getDefaultModelForCli(_cli?: string | null): string {
+export function getDefaultModelForCli(): string {
   return CLAUDE_DEFAULT_MODEL;
 }
 
-export function normalizeModelId(_cli: string | null | undefined, model?: string | null): string {
+export function normalizeModelId(model?: string | null): string {
   return normalizeClaudeModelId(model);
 }
 
-export function getModelDisplayName(_cli: string | null | undefined, modelId?: string | null): string {
+export function getModelDisplayName(modelId?: string | null): string {
   return getClaudeModelDisplayName(normalizeClaudeModelId(modelId));
 }
 
-export function getModelDefinitionsForCli(_cli?: string | null): ClaudeModelDefinition[] {
+export function getModelDefinitionsForCli(): ClaudeModelDefinition[] {
   return CLAUDE_MODEL_DEFINITIONS;
 }

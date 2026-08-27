@@ -14,7 +14,7 @@ export interface GlobalSettings {
 const DEFAULT_SETTINGS: GlobalSettings = {
   cli_settings: {
     claude: {
-      model: getDefaultModelForCli('claude'),
+      model: getDefaultModelForCli(),
     },
   },
 };
@@ -82,7 +82,7 @@ export function normalizeCliSettings(settings: unknown): CLISettings | undefined
       };
       const model = normalized[cli].model as string | undefined;
       if (model) {
-        normalized[cli].model = normalizeModelId(cli, model);
+        normalized[cli].model = normalizeModelId(model);
       }
     }
   }

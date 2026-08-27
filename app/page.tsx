@@ -28,10 +28,10 @@ export default function HomePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const DEFAULT_MODEL = getDefaultModelForCli(null);
+  const DEFAULT_MODEL = getDefaultModelForCli();
 
   const normalizeProjectPayload = useCallback((project: any): ProjectSummary => {
-    const selected = normalizeModelId(null, project?.selectedModel ?? project?.selected_model);
+    const selected = normalizeModelId(project?.selectedModel ?? project?.selected_model);
 
     return {
       id: project.id,
@@ -70,7 +70,7 @@ export default function HomePage() {
       const storedModelRaw = readStoredModel();
 
       if (storedModelRaw) {
-        setSelectedModel(normalizeModelId(null, storedModelRaw));
+        setSelectedModel(normalizeModelId(storedModelRaw));
         setUsingGlobalDefaults(false);
         setIsInitialLoad(false);
         return;
@@ -88,13 +88,13 @@ export default function HomePage() {
     if (!usingGlobalDefaults || !isInitialLoad) return;
 
     const modelFromGlobal = globalSettings?.cli_settings?.claude?.model;
-    setSelectedModel(normalizeModelId(null, modelFromGlobal));
+    setSelectedModel(normalizeModelId(modelFromGlobal));
   }, [globalSettings, usingGlobalDefaults, isInitialLoad]);
 
   // Save selections to sessionStorage when they change
   useEffect(() => {
     if (!isInitialLoad && selectedModel) {
-      writeStoredModel(normalizeModelId(null, selectedModel));
+      writeStoredModel(normalizeModelId(selectedModel));
     }
   }, [selectedModel, isInitialLoad]);
 
@@ -462,7 +462,7 @@ export default function HomePage() {
                                     color: (projectColor || '#6B7280') + 'CC'
                                   }}
                                 >
-                                  {getModelDisplayName(null, project.selectedModel)}
+                                  {getModelDisplayName(project.selectedModel)}
                                 </span>
                               </div>
                             )}

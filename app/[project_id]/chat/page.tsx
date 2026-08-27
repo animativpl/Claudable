@@ -29,7 +29,7 @@ type ProjectStatus = 'initializing' | 'active' | 'failed';
 
 type ModelOption = { id: string; name: string; available: boolean };
 
-const CLAUDE_MODEL_OPTIONS: ModelOption[] = getModelDefinitionsForCli(null).map(({ id, name }) => ({
+const CLAUDE_MODEL_OPTIONS: ModelOption[] = getModelDefinitionsForCli().map(({ id, name }) => ({
   id,
   name,
   available: true,
@@ -102,7 +102,7 @@ export default function ChatPage() {
   const [conversationId, setConversationId] = useState<string>(() =>
     typeof window === 'undefined' ? '' : randomId()
   );
-  const [selectedModel, setSelectedModel] = useState<string>(getDefaultModelForCli(null));
+  const [selectedModel, setSelectedModel] = useState<string>(getDefaultModelForCli());
   const [usingGlobalDefaults, setUsingGlobalDefaults] = useState<boolean>(true);
   const [thinkingMode, setThinkingMode] = useState<boolean>(false);
   const [isUpdatingModel, setIsUpdatingModel] = useState<boolean>(false);
@@ -118,7 +118,7 @@ export default function ChatPage() {
   const modelOptions = CLAUDE_MODEL_OPTIONS;
 
   const updateSelectedModel = useCallback((model: string) => {
-    const sanitized = normalizeModelId(null, model);
+    const sanitized = normalizeModelId(model);
     setSelectedModel(sanitized);
     if (typeof window !== 'undefined') {
       writeStoredModel(sanitized);
@@ -226,7 +226,7 @@ export default function ChatPage() {
     // Store the selected model in sessionStorage when returning
     const modelFromUrl = searchParams?.get('model');
     if (modelFromUrl) {
-      writeStoredModel(normalizeModelId(null, modelFromUrl));
+      writeStoredModel(normalizeModelId(modelFromUrl));
     }
 
     // Don't show the initial prompt in the input field
@@ -241,7 +241,7 @@ const persistProjectPreferences = useCallback(
     if (!projectId) return;
     const payload: Record<string, unknown> = {};
     if (changes.selectedModel) {
-      const normalized = normalizeModelId(null, changes.selectedModel);
+      const normalized = normalizeModelId(changes.selectedModel);
       payload.selectedModel = normalized;
       payload.selected_model = normalized;
     }
@@ -268,7 +268,7 @@ const persistProjectPreferences = useCallback(
     async (option: ModelOption) => {
       if (!projectId || !option) return;
 
-      const sanitizedModelId = normalizeModelId(null, option.id);
+      const sanitizedModelId = normalizeModelId(option.id);
       const previousModel = selectedModel;
 
       if (sanitizedModelId === previousModel) {
@@ -283,7 +283,7 @@ const persistProjectPreferences = useCallback(
       try {
         await persistProjectPreferences({ selectedModel: sanitizedModelId });
 
-        const modelLabel = getModelDisplayName(null, sanitizedModelId);
+        const modelLabel = getModelDisplayName(sanitizedModelId);
         try {
           await fetch(`${API_BASE}/api/chat/${projectId}/messages`, {
             method: 'POST',
@@ -793,19 +793,19 @@ const persistProjectPreferences = useCallback(
           if (cliSettings?.model) {
             updateSelectedModel(cliSettings.model);
           } else {
-            updateSelectedModel(getDefaultModelForCli(null));
+            updateSelectedModel(getDefaultModelForCli());
           }
         } else {
           const response = await fetch(`${API_BASE}/api/settings`);
           if (response.ok) {
-            updateSelectedModel(getDefaultModelForCli(null));
+            updateSelectedModel(getDefaultModelForCli());
           }
         }
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
       const hasModelSet = projectSettings?.model || selectedModel;
-      if (!hasModelSet) updateSelectedModel(getDefaultModelForCli(null));
+      if (!hasModelSet) updateSelectedModel(getDefaultModelForCli());
     }
   }, [selectedModel, updateSelectedModel]);
 
@@ -837,7 +837,7 @@ const persistProjectPreferences = useCallback(
       if (rawSelectedModel) {
         updateSelectedModel(rawSelectedModel);
       } else {
-        updateSelectedModel(getDefaultModelForCli(null));
+        updateSelectedModel(getDefaultModelForCli());
       }
 
       setUsingGlobalDefaults(!rawSelectedModel);
@@ -862,8 +862,8 @@ const persistProjectPreferences = useCallback(
       }
 
       const normalizedModel = rawSelectedModel
-        ? normalizeModelId(null, rawSelectedModel)
-        : getDefaultModelForCli(null);
+        ? normalizeModelId(rawSelectedModel)
+        : getDefaultModelForCli();
 
       return {
         model: normalizedModel,
@@ -1481,7 +1481,7 @@ const persistProjectPreferences = useCallback(
     if (modelFromGlobal) {
       updateSelectedModel(modelFromGlobal);
     } else {
-      updateSelectedModel(getDefaultModelForCli(null));
+      updateSelectedModel(getDefaultModelForCli());
     }
   }, [globalSettings, usingGlobalDefaults, updateSelectedModel]);
 

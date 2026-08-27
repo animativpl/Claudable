@@ -33,7 +33,7 @@ export function AIAssistantSettings({ projectId }: AIAssistantSettingsProps) {
     };
   }, [projectId]);
 
-  const modelDisplayName = selectedModel ? getModelDisplayName(null, selectedModel) : 'Default Model';
+  const modelDisplayName = selectedModel ? getModelDisplayName(selectedModel) : 'Default Model';
 
   return (
     <div className="p-6 space-y-6">

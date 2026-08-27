@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       project_id: body.project_id,
       name: body.name,
       initialPrompt: body.initialPrompt || body.initial_prompt,
-      selectedModel: normalizeModelId(null, requestedModel ?? getDefaultModelForCli(null)),
+      selectedModel: normalizeModelId(requestedModel ?? getDefaultModelForCli()),
       description: body.description,
       templateType: normalizeTemplateType(body.templateType ?? body.template_type),
     };

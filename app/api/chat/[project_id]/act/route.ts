@@ -212,8 +212,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       coerceString(body.selectedModel) ??
       coerceString(legacyBody['selected_model']) ??
       project.selectedModel ??
-      getDefaultModelForCli(null);
-    const selectedModel = normalizeModelId(null, selectedModelRaw);
+      getDefaultModelForCli();
+    const selectedModel = normalizeModelId(selectedModelRaw);
 
     const conversationId =
       coerceString(body.conversationId) ?? coerceString(legacyBody['conversation_id']);
@@ -279,7 +279,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     const projectPath = resolveProjectRoot(project_id, project.repoPath);
 
-    const existingSelected = normalizeModelId(null, project.selectedModel ?? undefined);
+    const existingSelected = normalizeModelId(project.selectedModel ?? undefined);
     if (existingSelected !== selectedModel) {
       try {
         await updateProject(project_id, { selectedModel });
