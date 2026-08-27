@@ -33,7 +33,6 @@ interface ServiceToken {
 export default function GlobalSettings({ isOpen, onClose, initialTab = 'general' }: GlobalSettingsProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'ai-agents' | 'services' | 'about'>(initialTab);
   const [serviceModalOpen, setServiceModalOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<'github' | null>(null);
   const [tokens, setTokens] = useState<{ [key: string]: ServiceToken | null }>({
     github: null
   });
@@ -61,14 +60,12 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
     setTokens(newTokens);
   }, []);
 
-  const handleServiceClick = (provider: 'github') => {
-    setSelectedProvider(provider);
+  const handleServiceClick = () => {
     setServiceModalOpen(true);
   };
 
   const handleServiceModalClose = () => {
     setServiceModalOpen(false);
-    setSelectedProvider(null);
     loadAllTokens(); // Reload tokens after modal closes
   };
 
@@ -372,7 +369,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
                           )}
                           <button
-                            onClick={() => handleServiceClick(provider as 'github')}
+                            onClick={handleServiceClick}
                             className="px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-all"
                           >
                             {token ? 'Update Token' : 'Add Token'}
@@ -478,11 +475,10 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
       </div>
       
       {/* Service Connection Modal */}
-      {selectedProvider && (
+      {serviceModalOpen && (
         <ServiceConnectionModal
           isOpen={serviceModalOpen}
           onClose={handleServiceModalClose}
-          provider={selectedProvider}
         />
       )}
     </AnimatePresence>

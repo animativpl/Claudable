@@ -8,7 +8,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 interface ServiceConnectionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  provider: 'github';
   projectId?: string;
 }
 
@@ -21,12 +20,12 @@ interface ServiceToken {
   last_used?: string;
 }
 
-export default function ServiceConnectionModal({ 
-  isOpen, 
-  onClose, 
-  provider,
-  projectId 
+export default function ServiceConnectionModal({
+  isOpen,
+  onClose,
+  projectId
 }: ServiceConnectionModalProps) {
+  const provider = 'github';
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [token, setToken] = useState('');
@@ -150,31 +149,6 @@ export default function ServiceConnectionModal({
     }
   };
 
-  const getProviderInfo = () => {
-    switch (provider) {
-      case 'github':
-        return {
-          title: 'GitHub',
-          description: 'Connect with your GitHub Personal Access Token to create repositories and manage code',
-          tokenUrl: 'https://github.com/settings/tokens',
-          tokenName: 'Personal Access Token',
-          icon: <GitHubIcon width={32} height={32} />,
-          instructions: [
-            "Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)",
-            "Click 'Generate new token' → 'Generate new token (classic)'",
-            "Enter a descriptive name (e.g., 'Clovable Integration')",
-            "Select expiration (recommend 'No expiration' for development)",
-            "Select scopes: 'repo' (full repository access) and 'user' (user profile access)",
-            "Click 'Generate token' and copy the token immediately (you won't see it again!)",
-            "Paste the token below and click 'Save Token'"
-          ],
-          actions: ['create-repo']
-        };
-    }
-  };
-
-  const providerInfo = getProviderInfo();
-
   if (!isOpen) return null;
 
   return (
@@ -199,14 +173,14 @@ export default function ServiceConnectionModal({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="text-gray-700 ">
-                  {providerInfo.icon}
+                  <GitHubIcon width={32} height={32} />
                 </div>
                 <div>
                   <h2 className="text-xl font-semibold text-gray-900 ">
-                    {providerInfo.title} {providerInfo.tokenName}
+                    GitHub Personal Access Token
                   </h2>
                   <p className="text-sm text-gray-600 ">
-                    {providerInfo.description}
+                    Connect with your GitHub Personal Access Token to create repositories and manage code
                   </p>
                 </div>
               </div>
@@ -247,15 +221,13 @@ export default function ServiceConnectionModal({
                 {projectId && (
                   <div className="space-y-2">
                     <h3 className="text-sm font-medium text-gray-700 ">Available Actions</h3>
-                    {provider === 'github' && (
-                      <button
-                        onClick={() => handleGitHubAction('create-repo')}
-                        disabled={actionLoading}
-                        className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        {actionLoading ? 'Creating Repository...' : 'Create GitHub Repository'}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleGitHubAction('create-repo')}
+                      disabled={actionLoading}
+                      className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      {actionLoading ? 'Creating Repository...' : 'Create GitHub Repository'}
+                    </button>
                   </div>
                 )}
 
@@ -279,13 +251,13 @@ export default function ServiceConnectionModal({
                   <div key="edit-token" className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Enter new {providerInfo.title} {providerInfo.tokenName}:
+                        Enter new GitHub Personal Access Token:
                       </label>
                       <input
                         type="password"
                         value={token}
                         onChange={(e) => setToken(e.target.value)}
-                        placeholder={`Paste your new ${providerInfo.tokenName} here...`}
+                        placeholder="Paste your new Personal Access Token here..."
                         className="w-full px-4 py-3 border border-gray-300 bg-white text-gray-900 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-colors"
                         disabled={isLoading}
                         autoFocus
@@ -325,15 +297,15 @@ export default function ServiceConnectionModal({
                     Setup Instructions
                   </h3>
                   <p className="text-xs text-gray-700 mb-3">
-                    To use {providerInfo.title} integration, you need to create a {providerInfo.tokenName} first.
+                    To use GitHub integration, you need to create a Personal Access Token first.
                   </p>
                   <a
-                    href={providerInfo.tokenUrl}
+                    href="https://github.com/settings/tokens"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-500 font-medium"
                   >
-                    Open {providerInfo.title} Token Settings
+                    Open GitHub Token Settings
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
@@ -345,7 +317,15 @@ export default function ServiceConnectionModal({
                     Step-by-step Guide:
                   </h4>
                   <ol className="text-xs text-gray-600 space-y-2">
-                    {providerInfo.instructions.map((step, index) => (
+                    {[
+                      "Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)",
+                      "Click 'Generate new token' → 'Generate new token (classic)'",
+                      "Enter a descriptive name (e.g., 'Clovable Integration')",
+                      "Select expiration (recommend 'No expiration' for development)",
+                      "Select scopes: 'repo' (full repository access) and 'user' (user profile access)",
+                      "Click 'Generate token' and copy the token immediately (you won't see it again!)",
+                      "Paste the token below and click 'Save Token'"
+                    ].map((step, index) => (
                       <li key={index} className="flex gap-2">
                         <span className="flex-shrink-0 w-5 h-5 bg-gray-100 text-gray-900 rounded-full flex items-center justify-center text-xs font-medium">
                           {index + 1}
@@ -360,13 +340,13 @@ export default function ServiceConnectionModal({
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Enter your {providerInfo.title} {providerInfo.tokenName}:
+                      Enter your GitHub Personal Access Token:
                     </label>
                     <input
                       type="password"
                       value={token}
                       onChange={(e) => setToken(e.target.value)}
-                      placeholder={`Paste your ${providerInfo.tokenName} here...`}
+                      placeholder="Paste your Personal Access Token here..."
                       className="w-full px-4 py-3 border border-gray-300 bg-white text-gray-900 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-colors"
                       disabled={isLoading}
                     />
