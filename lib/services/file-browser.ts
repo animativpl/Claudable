@@ -3,7 +3,6 @@
  */
 
 import fs from 'fs/promises';
-import path from 'path';
 import { getProjectById } from '@/lib/services/project';
 import type { ProjectFileEntry } from '@/types/backend';
 import { resolveProjectRoot, resolveSafeProjectPath } from '@/lib/utils/project-path';
