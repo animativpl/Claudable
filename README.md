@@ -61,8 +61,9 @@ How to start? Simply login to Claude Code, start Claudable, and describe what yo
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:
-- Node.js 20+ (`package.json` requires `>=20.0.0`; the Docker image below ships
-  Node 22, and generated Astro projects need Node ≥ 22.12 to start)
+- Node.js 22.12+ (`package.json` requires `>=22.12.0`, driven by Electron 44's
+  own engine requirement; the Docker image below ships Node 22, and generated
+  Astro projects also need Node ≥ 22.12 to start)
 - Claude Code (already logged in)
 - Git
 
@@ -122,11 +123,14 @@ ownership of files in the mounted `.claude` directory.
 - **Preview slots**: 32 of them (`3100`–`3131`). A 33rd concurrent preview
   fails loudly with a "no free port" error — that's the limit of the feature,
   not a documentation gap.
-- **Node version**: the image requires Node ≥ 22.12 (the generated projects'
-  `astro@7` refuses to start below that). This is separate from this
-  project's own `engines.node` (`>=20.0.0` in `package.json`) — one is the
-  platform Claudable itself runs on, the other is the runtime it hands to
-  generated projects inside the container.
+- **Node version**: the image requires Node ≥ 22.12, and this project's own
+  `engines.node` in `package.json` now states the same floor — but for a
+  different reason. The image's floor exists because generated projects'
+  `astro@7` refuses to start below Node 22.12; this project's own floor comes
+  from `electron`, a devDependency that itself requires Node ≥ 22.12. The two
+  numbers coincide; the concerns they describe — the platform Claudable runs
+  on, versus the runtime it hands to generated projects inside the
+  container — remain separate.
 - **`CLAUDABLE_DATA`** (default `./data`): mounted to `/data` in the
   container. Holds projects, the SQLite database, and global settings. Set
   this to keep projects outside the repository, e.g.
