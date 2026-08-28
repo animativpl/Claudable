@@ -3,7 +3,6 @@ node_modules
 .git
 .flow
 data
-dist
 npm-debug.log*
 .env
 .env.local

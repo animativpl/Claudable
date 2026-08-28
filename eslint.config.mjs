@@ -9,8 +9,6 @@ export default defineConfig([
     ignores: [
       "stubs/**",
       "data/**",
-      "dist/**",
-      "release/**",
       "coverage/**",
       "out/**",
       "build/**",
