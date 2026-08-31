@@ -14,14 +14,14 @@
 <a href="https://discord.gg/NJNbafHNQC">
 <img src="https://img.shields.io/badge/Discord-Join%20Community-7289da?style=flat&logo=discord&logoColor=white" alt="Join Discord Community">
 </a>
-<a href="https://github.com/opactorai/Claudable">
-<img src="https://img.shields.io/github/stars/opactorai/Claudable?style=flat&logo=github&logoColor=white&labelColor=181717&color=f9d71c" alt="GitHub Stars">
+<a href="https://github.com/animativpl/Claudable">
+<img src="https://img.shields.io/github/stars/animativpl/Claudable?style=flat&logo=github&logoColor=white&labelColor=181717&color=f9d71c" alt="GitHub Stars">
 </a>
-<a href="https://github.com/opactorai/Claudable">
-<img src="https://img.shields.io/github/forks/opactorai/Claudable?style=flat&logo=github&logoColor=white&labelColor=181717&color=181717" alt="GitHub Forks">
+<a href="https://github.com/animativpl/Claudable">
+<img src="https://img.shields.io/github/forks/animativpl/Claudable?style=flat&logo=github&logoColor=white&labelColor=181717&color=181717" alt="GitHub Forks">
 </a>
-<a href="https://github.com/opactorai/Claudable/blob/main/LICENSE">
-<img src="https://img.shields.io/github/license/opactorai/Claudable?style=flat&logo=github&logoColor=white&labelColor=181717&color=181717" alt="License">
+<a href="https://github.com/animativpl/Claudable/blob/main/LICENSE">
+<img src="https://img.shields.io/github/license/animativpl/Claudable?style=flat&logo=github&logoColor=white&labelColor=181717&color=181717" alt="License">
 </a>
 </p>
 
@@ -70,7 +70,7 @@ Get Claudable running on your local machine in minutes:
 
 ```bash
 # Clone the repository
-git clone https://github.com/opactorai/Claudable.git
+git clone https://github.com/animativpl/Claudable.git
 cd Claudable
 
 # Install all dependencies
@@ -215,11 +215,11 @@ degrades silently to a missing `publicUrl` instead of failing loudly.
 
 ## Setup
 
-The `npm install` command automatically handles the complete setup:
+The `npm install` command automatically handles most of the setup:
 
 1. **Port Configuration**: Detects available ports and creates `.env` files
 2. **Dependencies**: Installs all required Node.js packages
-3. **Database Setup**: SQLite database auto-creates at `data/cc.db` on first run
+3. **Database Setup**: SQLite database auto-creates at `data/cc.db` on first `npm run dev`
 
 ### Additional Commands
 ```bash
@@ -367,4 +367,4 @@ We're working hard to deliver the features you've been asking for. Stay tuned!
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=opactorai/Claudable&type=Date)](https://www.star-history.com/#opactorai/Claudable&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=animativpl/Claudable&type=Date)](https://www.star-history.com/#animativpl/Claudable&Date)
