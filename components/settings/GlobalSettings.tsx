@@ -451,7 +451,7 @@ export default function GlobalSettings({ isOpen, onClose, initialTab = 'general'
                 <div className="text-center">
                   <div className="flex justify-center gap-6">
                     <a 
-                      href="https://github.com/opactorai/Claudable" 
+                      href="https://github.com/animativpl/Claudable"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm text-[#DE7356] hover:text-[#c95940] transition-colors"

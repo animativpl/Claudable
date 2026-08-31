@@ -191,14 +191,6 @@ change at merge time — flagged, not silently treated as verified).
   `tests`) explicitly excluded — a `next.config.js`
   `outputFileTracingExcludes` limitation tied to this project's
   `process.cwd()`-relative project-path resolution, not fully solved.
-- `.env.docker.example`'s comment on `ENCRYPTION_KEY` still describes the
-  pre-2026-08-27 silent-random-key-fallback behavior that decision 4 removed
-  — stale as of this spec, not yet corrected in that file.
-- A handful of README badges/links (stars, forks, license, the clone
-  command, the star-history chart) still point at `github.com/opactorai/
-  Claudable`; the real current origin is `github.com/anymorph-ai/Claudable`
-  (`git remote -v`). Some, not all, of these were corrected on 2026-08-27;
-  a full sweep is still open.
 
 ## 10. Assumptions
 
