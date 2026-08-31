@@ -17,7 +17,7 @@
     "prisma:push": "prisma db push",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:reset": "prisma migrate reset",
+    "prisma:reset": "prisma db push --force-reset",
     "db:backup": "node -e \"require('./scripts/migrate-drop-legacy.js').runBackupCli()\"",
     "db:migrate-legacy": "node scripts/migrate-drop-legacy.js",
     "clean": "rm -rf node_modules package-lock.json",
@@ -70,6 +70,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anymorph-ai/Claudable.git"
+    "url": "https://github.com/animativpl/Claudable.git"
   }
 }
