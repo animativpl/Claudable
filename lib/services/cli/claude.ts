@@ -22,6 +22,7 @@ import { loadAgentDefinitions } from './agents-loader';
 import { loadUserScopeMcpServers } from './mcp-servers-loader';
 import { resolveClaudeConfigDir } from './claude-config-dir';
 import { summarizeInitPayload } from './init-payload';
+import { TurnGate, singleTurnPrompt } from './turn-gate';
 import { resolveProjectRoot } from '@/lib/utils/project-path';
 import path from 'path';
 import { normalizeAction, inferActionFromToolName, pickFirstString, extractPathFromInput, type ToolAction } from '@/lib/tool-actions';
@@ -402,6 +403,11 @@ export async function executeClaude(
 
   let hasMarkedTerminalStatus = false;
   let emittedCompletedStatus = false;
+  // Declared out here (not `const` inside the `try`) so the `finally` below
+  // can always force the gate closed, even if something throws before the
+  // gate is ever created.
+  let turnGate: TurnGate | undefined;
+  let sawResult = false;
 
   const safeMarkRunning = async () => {
     if (!requestId) return;
@@ -529,8 +535,9 @@ export async function executeClaude(
     if (Object.keys(userMcpServers).length > 0) {
       console.log(`[ClaudeService] Loaded ${Object.keys(userMcpServers).length} user-scope MCP server(s)`);
     }
+    turnGate = new TurnGate();
     const response = query({
-      prompt: instruction,
+      prompt: singleTurnPrompt(instruction, turnGate),
       options: {
         ...buildClaudeQueryOptions({
           projectPath: absoluteProjectPath,
@@ -876,13 +883,16 @@ export async function executeClaude(
             data: serializeMessage(savedMessage, { requestId }),
           });
         }
+      } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
+        turnGate.setLiveTasks(message.tasks);
       } else if (message.type === 'result') {
-        // Final result
+        // Final result — completion is marked once the loop itself ends
+        // (see the post-loop fallback below), not here: a backgrounded
+        // Task-tool subagent may still be running, and turnGate is what's
+        // keeping this loop alive to find out.
         console.log('[ClaudeService] Task completed:', message.subtype);
-
-        publishStatus('completed');
-        emittedCompletedStatus = true;
-        await safeMarkCompleted();
+        sawResult = true;
+        turnGate.markResultSeen();
       }
     }
 
@@ -935,7 +945,14 @@ export async function executeClaude(
       }
     }
 
-    await safeMarkFailed(errorMessage);
+    // A failure after `result` must not overwrite a succeeded turn as failed:
+    // the visible turn genuinely did succeed, only the background-wait tail
+    // broke. The error is still published and thrown either way.
+    if (sawResult) {
+      await safeMarkCompleted();
+    } else {
+      await safeMarkFailed(errorMessage);
+    }
     publishStatus('error', errorMessage);
 
     // Send error via SSE
@@ -946,6 +963,8 @@ export async function executeClaude(
     });
 
     throw new Error(errorMessage);
+  } finally {
+    turnGate?.forceClose();
   }
 }
 
