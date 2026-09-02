@@ -85,9 +85,18 @@ async function runOnce(label, { resumeSessionId } = {}) {
           }
         }
       } else if (message.type === 'result') {
+        // Latch at the FIRST result only. An agent whose settingSources pull in
+        // a CLAUDE.md encouraging autonomous multi-step behavior can emit
+        // multiple result messages on one open generator before the gate
+        // condition is met, none of them a newly pushed user message. Only the
+        // first one is the moment that actually tests the premise.
+        if (!resultSeen) {
+          markerPresentAtResult = existsSync(markerFile);
+          console.log(`[${label}] result received; marker already present: ${markerPresentAtResult}`);
+        } else {
+          console.log(`[${label}] additional result received (autonomous continuation, not a new pushed message)`);
+        }
         resultSeen = true;
-        markerPresentAtResult = existsSync(markerFile);
-        console.log(`[${label}] result received; marker already present: ${markerPresentAtResult}`);
       }
       if (resultSeen && liveTaskIds.size === 0) {
         releaseGate();
