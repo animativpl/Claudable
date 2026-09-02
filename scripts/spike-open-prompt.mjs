@@ -24,7 +24,7 @@ import path from 'node:path';
 const cwd = mkdtempSync(path.join(tmpdir(), 'spike-'));
 const SLEEP_SECONDS = 180; // long enough that model latency to `result` can't
 // beat it and produce a flaky false negative on `markerPresentAtResult`.
-const GATE_TIMEOUT_MS = 5 * 60 * 1000;
+const GATE_TIMEOUT_MS = (SLEEP_SECONDS + 120) * 1000; // 120s buffer over the sleep duration, generous relative to the ~49s overhead observed in a real run
 
 async function runOnce(label, { resumeSessionId } = {}) {
   // Unique per run so the second leg doesn't see the first leg's leftover
