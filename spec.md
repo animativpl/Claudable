@@ -27,7 +27,7 @@ support for AI coding agents other than Claude Code, a desktop application
 | 8 | Templates | Two project templates: Next.js (App Router) and Astro. Each scaffold gets a `CLAUDE.md` written into it with that framework's conventions. | `lib/templates/`. |
 | 9 | Preview ports | 32 concurrent preview slots, `3100`–`3131`. A 33rd concurrent preview fails loudly ("no free port"). | `scripts/setup-env.js`'s `DEFAULT_WEB_SCAN_SPAN`/preview-range constants; this is the feature's actual limit, not a documentation gap. |
 | 10 | Docker port publishing | **Stated intent:** `127.0.0.1`-only, since the app has no auth and hands the agent a Bash tool. **Actual current state contradicts this — see §9, flagged, not resolved.** | |
-| 11 | Agent session lifecycle | `executeClaude()` keeps its current shape — one fresh `query()` per chat message, `resume: sessionId` unchanged. The only change: `prompt` becomes a small async generator (one `SDKUserMessage`, then waits on a `TurnGate` that tracks the SDK's `background_tasks_changed` level signal — not edge-pairing `task_started`/`task_notification`, which a later red-team pass found can wedge forever) instead of a plain string, so stdin isn't closed the instant the first result arrives. No process registry, no custom `spawnClaudeCodeProcess`, no `perTaskStopAffordance` — all rejected, see the design record. **Auto-resuming interrupted requests on restart (`reconcileStaleRequests()`) is deferred to a separate follow-up decision** — drafted and red-teamed twice as part of this one, found to carry its own hazards unrelated to the turn-gate mechanism (a race with project-path reconciliation, unbounded restart-triggered agent dispatch), and cut rather than patched further; restart behavior is unchanged (mark `failed`) until that follow-up. **Turn-gate mechanism decided 2026-09-02, not yet implemented — see §3 for current (pre-change) architecture; this plan's own final task updates this sentence once it lands.** | A plain string `prompt` makes the SDK close stdin the instant the first `result` message arrives (`isSingleUserTurn` in `sdk.mjs`), killing any still-running backgrounded Task-tool subagent — every turn, independent of restarts; confirmed by reading the compiled SDK bundle, not just its type docs. An earlier version of this decision also added a subprocess registry for `shutdown()` to kill synchronously — dropped after a plan red-team pass found the SDK already tracks and kills its own spawned subprocess on `process.exit()`, and that the one thing a custom spawn hook could have added (process-*group* kill reaching Bash-tool grandchildren) is unreachable by construction: the CLI's Bash tool spawns its own shell `detached: true`, in its own process group, deliberately isolated from the `claude` subprocess Claudable spawns. Full deliberation for both passes: `.flow/specs/2026-09-02-persistent-agent-session-design.md` (superseded) and `.flow/specs/2026-09-02-single-turn-open-prompt-design.md` (current). |
+| 11 | Agent session lifecycle | `executeClaude()` keeps its current shape — one fresh `query()` per chat message, `resume: sessionId` unchanged. The only change: `prompt` becomes a small async generator (one `SDKUserMessage`, then waits on a `TurnGate` that tracks the SDK's `background_tasks_changed` level signal — not edge-pairing `task_started`/`task_notification`, which a later red-team pass found can wedge forever) instead of a plain string, so stdin isn't closed the instant the first result arrives. No process registry, no custom `spawnClaudeCodeProcess`, no `perTaskStopAffordance` — all rejected, see the design record. **Implemented 2026-09-02 for the turn-gate mechanism; auto-resume on restart (this decision's original second half) deferred to a separate follow-up — see `.flow/specs/2026-09-02-single-turn-open-prompt-design.md`'s Part C and this plan's Task 4 note for why.** | A plain string `prompt` makes the SDK close stdin the instant the first `result` message arrives (`isSingleUserTurn` in `sdk.mjs`), killing any still-running backgrounded Task-tool subagent — every turn, independent of restarts; confirmed by reading the compiled SDK bundle, not just its type docs. An earlier version of this decision also added a subprocess registry for `shutdown()` to kill synchronously — dropped after a plan red-team pass found the SDK already tracks and kills its own spawned subprocess on `process.exit()`, and that the one thing a custom spawn hook could have added (process-*group* kill reaching Bash-tool grandchildren) is unreachable by construction: the CLI's Bash tool spawns its own shell `detached: true`, in its own process group, deliberately isolated from the `claude` subprocess Claudable spawns. Full deliberation for both passes: `.flow/specs/2026-09-02-persistent-agent-session-design.md` (superseded) and `.flow/specs/2026-09-02-single-turn-open-prompt-design.md` (current). |
 
 ## 3. Architecture
 
@@ -40,7 +40,10 @@ Next.js 16 App Router, TypeScript strict throughout.
   `preview.ts` (spawns/manages generated projects' dev servers), `github.ts`,
   `env.ts`, `tokens.ts`, `file-browser.ts`, `assets.ts`, `stream.ts` (SSE),
   `cli/claude.ts` (the Claude Agent SDK orchestration — building the query,
-  streaming tool events back to the client).
+  streaming tool events back to the client; the prompt is an AsyncGenerator
+  gated by `cli/turn-gate.ts`'s `TurnGate`, tracking the SDK's
+  `background_tasks_changed` signal, so a backgrounded Task-tool subagent
+  isn't killed when the turn's main result arrives), `cli/turn-gate.ts`.
 - **`lib/serializers/`** — DB row ↔ wire-shape conversion; `lib/serializers/client/`
   holds pure client-side message-merging/placeholder logic extracted out of
   `ChatLog.tsx`.
@@ -192,6 +195,18 @@ change at merge time — flagged, not silently treated as verified).
   `tests`) explicitly excluded — a `next.config.js`
   `outputFileTracingExcludes` limitation tied to this project's
   `process.cwd()`-relative project-path resolution, not fully solved.
+- A turn that dispatches backgrounded Task-tool work can keep producing
+  additional assistant chat messages after what looks like the turn's
+  visible end (its own `result` event), for as long as the background work
+  continues — the `TurnGate` mechanism (decision 11) holds the SDK session
+  open for exactly this reason. Confirmed via isolated-`CLAUDE_CONFIG_DIR`
+  testing (no user `CLAUDE.md`) to be default CLI/SDK behavior, not an
+  artifact of any one operator's config. No UI change was made to
+  distinguish this trailing activity from the original turn's own
+  messages in the chat log — a real product-polish opportunity, out of
+  scope for this change. Found during this plan's Task 3 manual
+  verification of the turn-gate mechanism; see
+  `.flow/specs/2026-09-02-single-turn-open-prompt-design.md`.
 
 ## 10. Assumptions
 
