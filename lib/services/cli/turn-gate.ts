@@ -28,6 +28,12 @@ const MAX_BACKGROUND_WAIT_MS = 10 * 60 * 1000;
 export class TurnGate {
   private resultSeen = false;
   private liveTaskIds = new Set<string>();
+  // Declaration order matters: `resolveSafe` must come before `safePromise`.
+  // The executor below runs synchronously during the `safePromise` field
+  // initializer and assigns `resolveSafe` — if `resolveSafe`'s own `= null`
+  // initializer ran after that (i.e. the fields were declared in the other
+  // order), it would immediately overwrite the assignment and the gate would
+  // never resolve, hanging every turn until the timeout.
   private resolveSafe: (() => void) | null = null;
   private safePromise = new Promise<void>((resolve) => {
     this.resolveSafe = resolve;
