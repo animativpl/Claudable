@@ -19,6 +19,7 @@ import {
 } from '@/lib/serializers/client/tool-messages';
 import { getPageCursor } from '@/lib/serializers/client/pagination';
 import { shouldStickToBottom } from '@/lib/utils/scroll';
+import { readShowToolCalls, writeShowToolCalls } from '@/lib/utils/tool-visibility-storage';
 
 type ToolExpansionState = {
   expanded: boolean;
@@ -416,6 +417,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   }, []);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [showToolCalls, setShowToolCalls] = useState(false);
   const oldestLoadedCursorRef = useRef<{ createdAt: string; id: string } | null>(null);
   const paginationInitializedRef = useRef(false);
   // Whether the view should auto-follow new messages. Starts true (a
@@ -428,6 +430,10 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   // bottom" would almost always read as "far", even when the user was
   // at the bottom right before the update.
   const stickToBottomRef = useRef(true);
+
+  useEffect(() => {
+    setShowToolCalls(readShowToolCalls());
+  }, []);
 
   // Enhanced deduplication system to prevent duplicate messages
   const processedMessageIds = useRef(new Set<string>());
@@ -841,6 +847,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const scrollToBottom = () => {
     logsEndRef.current?.scrollIntoView({ behavior: "auto" });
   };
+
+  const handleToggleShowToolCalls = useCallback(() => {
+    setShowToolCalls((prev) => {
+      const next = !prev;
+      writeShowToolCalls(next);
+      return next;
+    });
+  }, []);
 
   // Function to detect tool usage messages based on patterns
   const isToolUsageMessage = useCallback((message: ChatMessage) => {
@@ -1505,6 +1519,10 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       return true;
     }
 
+    if (!showToolCalls && (message.messageType === 'tool_result' || message.messageType === 'tool_use' || isToolUsageMessage(message))) {
+      return false;
+    }
+
     if (message.messageType === 'tool_result') {
       const messageId = message.id ?? ensureStableMessageId(message);
       const visibleSet = visibleToolMessageIdsRef.current;
@@ -1671,6 +1689,19 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
           </div>
         </div>
       )}
+
+      {/* Tool call visibility toggle */}
+      <div className="flex justify-end px-8 pt-2">
+        <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showToolCalls}
+            onChange={handleToggleShowToolCalls}
+            className="h-3.5 w-3.5 rounded border-gray-300"
+          />
+          Show tool calls
+        </label>
+      </div>
 
       {/* Display chat messages */}
       <div
