@@ -1031,6 +1031,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         setIsLoading(true);
       }
 
+      // Freeze which project this specific request is for, same as
+      // loadOlderMessages: if the user switches projects before the fetch
+      // resolves, projectIdRef.current will have moved on while this stays
+      // put, so comparing the two after the await tells us the response is
+      // stale and must not be applied to the now-current project's state.
+      const requestProjectId = projectId;
+      let applied = false;
+
       try {
         // Always fetch the most recent window; "load older" pages further
         // back from there via a composite (createdAt, id) cursor (see
@@ -1038,6 +1046,13 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         const response = await fetch(`${API_BASE}/api/chat/${projectId}/messages?limit=200&order=desc`);
         if (response.ok) {
           const payload = await response.json();
+          if (projectIdRef.current !== requestProjectId) {
+            // The user switched projects while this fetch was in flight.
+            // Applying this response now would seed the pagination cursor
+            // and hasMoreMessages from the old project's data.
+            return;
+          }
+          applied = true;
           const chatMessages = Array.isArray(payload)
             ? payload
             : payload?.data ?? payload?.messages ?? [];
@@ -1056,8 +1071,13 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
           }
 
           setMessages((prev) => integrateMessages(prev, normalized));
+        } else if (projectIdRef.current === requestProjectId) {
+          applied = true;
         }
       } catch (error) {
+        if (projectIdRef.current === requestProjectId) {
+          applied = true;
+        }
         if (process.env.NODE_ENV === 'development') {
           console.warn('Failed to load chat history (network issue):', error);
         }
@@ -1065,8 +1085,10 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
         if (shouldShowLoading) {
           setIsLoading(false);
         }
-        hasLoadedInitialDataRef.current = true;
-        setHasLoadedOnce(true);
+        if (applied) {
+          hasLoadedInitialDataRef.current = true;
+          setHasLoadedOnce(true);
+        }
       }
     },
     [projectId, ensureStableMessageId]
