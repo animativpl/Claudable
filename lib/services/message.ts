@@ -31,17 +31,34 @@ function mapPrismaMessage(message: PrismaMessage): Message {
 }
 
 /**
- * Retrieve project messages (with pagination)
+ * Retrieve project messages, cursor-paginated by (createdAt, id)
  */
 export async function getMessagesByProjectId(
   projectId: string,
   limit: number = 50,
-  offset: number = 0
+  options: { order?: 'asc' | 'desc'; before?: { createdAt: Date; id: string } } = {}
 ): Promise<Message[]> {
+  const { order = 'asc', before } = options;
+
+  const cursorWhere = before
+    ? order === 'desc'
+      ? {
+          OR: [
+            { createdAt: { lt: before.createdAt } },
+            { createdAt: before.createdAt, id: { lt: before.id } },
+          ],
+        }
+      : {
+          OR: [
+            { createdAt: { gt: before.createdAt } },
+            { createdAt: before.createdAt, id: { gt: before.id } },
+          ],
+        }
+    : {};
+
   const messages = await prisma.message.findMany({
-    where: { projectId },
-    orderBy: { createdAt: 'asc' },
-    skip: offset,
+    where: { projectId, ...cursorWhere },
+    orderBy: [{ createdAt: order }, { id: order }],
     take: limit,
   });
 
@@ -120,17 +137,6 @@ export async function createMessage(input: CreateMessageInput): Promise<Message>
   // All retries failed
   console.error('[MessageService] All retry attempts failed to create message:', lastError);
   throw lastError || new Error('Failed to create message after 3 attempts');
-}
-
-/**
- * Get total count of messages for a project
- */
-export async function getMessagesCountByProjectId(projectId: string): Promise<number> {
-  const count = await prisma.message.count({
-    where: { projectId },
-  });
-
-  return count;
 }
 
 /**

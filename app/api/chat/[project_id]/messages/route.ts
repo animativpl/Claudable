@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getMessagesByProjectId, createMessage, deleteMessagesByProjectId, getMessagesCountByProjectId } from '@/lib/services/message';
+import { getMessagesByProjectId, createMessage, deleteMessagesByProjectId } from '@/lib/services/message';
 import type { CreateMessageInput } from '@/types/backend';
 import { serializeMessages, serializeMessage } from '@/lib/serializers/chat';
 
@@ -24,23 +24,24 @@ export async function GET(
     const { project_id } = await params;
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const order: 'asc' | 'desc' = searchParams.get('order') === 'desc' ? 'desc' : 'asc';
+    const beforeParam = searchParams.get('before');
+    const beforeIdParam = searchParams.get('beforeId');
+    const before =
+      beforeParam && beforeIdParam && !Number.isNaN(Date.parse(beforeParam))
+        ? { createdAt: new Date(beforeParam), id: beforeIdParam }
+        : undefined;
 
-    const [messages, totalCount] = await Promise.all([
-      getMessagesByProjectId(project_id, limit, offset),
-      getMessagesCountByProjectId(project_id),
-    ]);
+    const messages = await getMessagesByProjectId(project_id, limit, { order, before });
     const serialized = serializeMessages(messages);
 
     const res = NextResponse.json({
       success: true,
       data: serialized,
-      totalCount,
       pagination: {
         limit,
-        offset,
-        count: serialized.length,
-        hasMore: offset + serialized.length < totalCount,
+        order,
+        hasMore: serialized.length === limit,
       },
     });
     res.headers.set('Cache-Control', 'no-store');
