@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useState, useRef, ReactElement, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import { Brain } from 'lucide-react';
 import ToolResultItem from './ToolResultItem';
@@ -16,6 +17,8 @@ import {
   integrateMessages,
   randomMessageId,
 } from '@/lib/serializers/client/tool-messages';
+import { getPageCursor } from '@/lib/serializers/client/pagination';
+import { shouldStickToBottom } from '@/lib/utils/scroll';
 
 type ToolExpansionState = {
   expanded: boolean;
@@ -273,6 +276,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [needsHistoryRefresh, setNeedsHistoryRefresh] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
   const historyPollRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedInitialDataRef = useRef(false);
   const [isSseConnected, setIsSseConnected] = useState(false);
@@ -401,7 +405,19 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     setErrorMessage(null);
   }, []);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
-  const [totalMessageCount, setTotalMessageCount] = useState(0);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const oldestLoadedCursorRef = useRef<{ createdAt: string; id: string } | null>(null);
+  const paginationInitializedRef = useRef(false);
+  // Whether the view should auto-follow new messages. Starts true (a
+  // freshly-mounted project should open at the bottom of its history)
+  // and is updated ONLY by the container's own onScroll handler (Step 6)
+  // — never by measuring the DOM inside the effect that reacts to
+  // `messages` changing, because that effect runs after React has
+  // already committed the new, taller content: at that point the
+  // container's scrollHeight has already grown, so "distance from
+  // bottom" would almost always read as "far", even when the user was
+  // at the bottom right before the update.
+  const stickToBottomRef = useRef(true);
 
   // Enhanced deduplication system to prevent duplicate messages
   const processedMessageIds = useRef(new Set<string>());
@@ -813,7 +829,7 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   }, [projectId, handleRealtimeEnvelope]);
 
   const scrollToBottom = () => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    logsEndRef.current?.scrollIntoView({ behavior: "auto" });
   };
 
   // Function to detect tool usage messages based on patterns
@@ -860,7 +876,12 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     return toolPatterns.some(pattern => pattern.test(content));
   }, []);
 
-  useEffect(scrollToBottom, [messages]);
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (stickToBottomRef.current) {
+      scrollToBottom();
+    }
+  }, [messages]);
 
   useEffect(() => {
     setExpandedToolMessages((prev) => {
@@ -996,16 +1017,16 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const loadChatHistory = useCallback(
     async ({ showLoading }: { showLoading?: boolean } = {}) => {
       const shouldShowLoading = showLoading ?? !hasLoadedInitialDataRef.current;
-      let didSucceed = false;
       if (shouldShowLoading) {
         setIsLoading(true);
       }
 
       try {
-        // Load more messages per request to reduce pagination needs
-        const response = await fetch(`${API_BASE}/api/chat/${projectId}/messages?limit=200&offset=0`);
+        // Always fetch the most recent window; "load older" pages further
+        // back from there via a composite (createdAt, id) cursor (see
+        // loadOlderMessages).
+        const response = await fetch(`${API_BASE}/api/chat/${projectId}/messages?limit=200&order=desc`);
         if (response.ok) {
-          didSucceed = true;
           const payload = await response.json();
           const chatMessages = Array.isArray(payload)
             ? payload
@@ -1014,13 +1035,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
             ? expandMessagesList(chatMessages.map(toChatMessage), ensureStableMessageId)
             : [];
 
-          // Update pagination state
-          if (payload.pagination) {
-            setHasMoreMessages(payload.pagination.hasMore || false);
-            setTotalMessageCount(payload.totalCount || 0);
-          } else {
-            setHasMoreMessages(false);
-            setTotalMessageCount(normalized.length);
+          // Seed the pagination cursor exactly once, from the first
+          // response that actually has messages. A poll re-fetching the
+          // same newest window must not touch this — it tracks how far
+          // back "load older" has already paged, independent of polling.
+          if (!paginationInitializedRef.current && Array.isArray(chatMessages) && chatMessages.length > 0) {
+            oldestLoadedCursorRef.current = getPageCursor(chatMessages);
+            setHasMoreMessages(payload?.pagination?.hasMore ?? false);
+            paginationInitializedRef.current = true;
           }
 
           setMessages((prev) => integrateMessages(prev, normalized));
@@ -1051,13 +1073,20 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     return () => clearTimeout(timer);
   }, [needsHistoryRefresh, loadChatHistory]);
 
-  // Load older messages (pagination)
+  // Load older messages (pagination) — pages backward from the oldest
+  // loaded message via a composite (createdAt, id) cursor, not an
+  // offset, so it never depends on the size of the client's
+  // deduplicated/expanded message array (that mismatch was the cause of
+  // only ~1 message loading per click).
   const loadOlderMessages = useCallback(async () => {
-    if (!projectId || !hasMoreMessages) return;
+    if (!projectId || !hasMoreMessages || !oldestLoadedCursorRef.current || isLoadingOlder) return;
 
+    setIsLoadingOlder(true);
     try {
-      const currentOffset = messages.length;
-      const response = await fetch(`${API_BASE}/api/chat/${projectId}/messages?limit=100&offset=${currentOffset}`);
+      const cursor = oldestLoadedCursorRef.current;
+      const response = await fetch(
+        `${API_BASE}/api/chat/${projectId}/messages?limit=100&order=desc&before=${encodeURIComponent(cursor.createdAt)}&beforeId=${encodeURIComponent(cursor.id)}`
+      );
 
       if (response.ok) {
         const payload = await response.json();
@@ -1068,22 +1097,40 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
           ? expandMessagesList(chatMessages.map(toChatMessage), ensureStableMessageId)
           : [];
 
-        // Update pagination state
-        if (payload.pagination) {
-          setHasMoreMessages(payload.pagination.hasMore || false);
-          setTotalMessageCount(payload.totalCount || 0);
-          console.log(`[ChatLog] Loaded ${payload.pagination.count} older messages (${messages.length + normalized.length}/${payload.totalCount} total)`);
+        setHasMoreMessages(payload?.pagination?.hasMore ?? false);
+
+        if (Array.isArray(chatMessages) && chatMessages.length > 0) {
+          oldestLoadedCursorRef.current = getPageCursor(chatMessages) ?? oldestLoadedCursorRef.current;
+          console.log(`[ChatLog] Loaded ${chatMessages.length} older messages`);
         }
 
-        // Prepend older messages to the existing list
         if (normalized.length > 0) {
-          setMessages((prev) => integrateMessages(prev, normalized));
+          // Prepending above the current scroll position shifts
+          // everything below it down. The button that triggers this is
+          // at scrollTop === 0, exactly the offset where CSS scroll
+          // anchoring is specified to be suppressed, so it can't be
+          // relied on here — restore the position explicitly instead.
+          // flushSync forces the state update to commit synchronously so
+          // the "after" measurement below is accurate (a normal
+          // setMessages call wouldn't have updated the DOM yet by the
+          // time the next line runs).
+          const container = logsContainerRef.current;
+          const previousScrollHeight = container?.scrollHeight ?? 0;
+          const previousScrollTop = container?.scrollTop ?? 0;
+          flushSync(() => {
+            setMessages((prev) => integrateMessages(prev, normalized));
+          });
+          if (container) {
+            container.scrollTop = previousScrollTop + (container.scrollHeight - previousScrollHeight);
+          }
         }
       }
     } catch (error) {
       console.error('[ChatLog] Failed to load older messages:', error);
+    } finally {
+      setIsLoadingOlder(false);
     }
-  }, [projectId, hasMoreMessages, messages.length, ensureStableMessageId]);
+  }, [projectId, hasMoreMessages, isLoadingOlder, ensureStableMessageId]);
 
   // Enhanced polling system to prevent conflicts with real-time connections
   useEffect(() => {
@@ -1164,6 +1211,11 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     setExpandedToolMessages({});
     fallbackMessageIdRef.current.clear();
     visibleToolMessageIdsRef.current.clear();
+    oldestLoadedCursorRef.current = null;
+    paginationInitializedRef.current = false;
+    stickToBottomRef.current = true;
+    setHasMoreMessages(false);
+    setIsLoadingOlder(false);
   }, [projectId]);
 
   // Function to convert file paths to relative paths
@@ -1574,7 +1626,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
       )}
 
       {/* Display chat messages */}
-      <div className="flex-1 overflow-y-auto px-8 py-3 space-y-2 custom-scrollbar ">
+      <div
+        ref={logsContainerRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          stickToBottomRef.current = shouldStickToBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+        }}
+        className="flex-1 overflow-y-auto px-8 py-3 space-y-2 custom-scrollbar "
+      >
         {isLoading && !hasLoadedOnce && !hasError && (
           <div className="flex items-center justify-center h-32 text-gray-400 text-sm">
             <div className="flex flex-col items-center">
@@ -1599,9 +1658,9 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
             <button
               onClick={loadOlderMessages}
               className="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
-              disabled={isLoading}
+              disabled={isLoadingOlder}
             >
-              {isLoading ? 'Loading...' : `Load older messages (${totalMessageCount - messages.length} remaining)`}
+              {isLoadingOlder ? 'Loading...' : 'Load older messages'}
             </button>
           </div>
         )}
