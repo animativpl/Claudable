@@ -18,11 +18,19 @@ newest-first for the initial/polling load and pages older messages via
 that composite cursor, tracked from real server responses only — never
 from the client's deduplicated/expanded array length, which was the root
 cause of the "loads 1 message at a time" bug. Auto-scroll-to-bottom is
-changed from "always, on every messages change" to "only when already
-near the bottom, or on a project's first render" — this fixes the
-originally-reported "load older" jump-to-bottom problem *and* the same
-problem for SSE/polling updates while the user is reading history, which
-the initial design missed.
+driven by a `stickToBottomRef` that starts `true` and is updated only by
+the container's own `onScroll` event (never by measuring the DOM inside
+the effect that reacts to new messages — messages effects run after
+React has already committed the new content, so a post-commit
+measurement always sees the *grown* scroll height, not whether the user
+was at the bottom before it grew). This fixes the originally-reported
+"load older" jump-to-bottom problem *and* the same problem for
+SSE/polling updates while the user is reading history. Prepending older
+messages additionally needs its own scroll-position restore (`flushSync`
+plus a before/after `scrollHeight` diff) — browser CSS scroll anchoring,
+which would otherwise absorb most of a prepend's visual jump for free, is
+specified to switch off exactly at `scrollTop === 0`, which is where the
+"Load older messages" button sits.
 
 **Tech Stack:** Next.js 16 App Router (route handlers), Prisma/SQLite,
 React (`"use client"` component), Vitest.
@@ -31,37 +39,74 @@ React (`"use client"` component), Vitest.
 
 **Design record:** `/home/m/work/Claudable/.flow/specs/2026-09-09-chat-history-pagination-design.md`
 
-**Revision note:** This plan was red-teamed after its first draft and
-revised twice. The red-team found the first draft's client-side
-bookkeeping (an offset counter reconstructed from array lengths, a
-"remaining count" derived from a one-time total) reintroduced the same
-class of bug it was meant to fix, plus a project-switch reset gap and an
-unguarded double-click on "load older". This revision removes that
-bookkeeping in favor of trusting the server's `hasMore` directly, adds a
-composite `(createdAt, id)` cursor to eliminate same-millisecond ties,
-adds the new refs to the existing project-switch reset effect, adds an
-in-flight guard on "load older", and replaces the originally-planned
-manual scroll-position-restore math with a simpler "stick to bottom only
-if already there" guard that covers polling/SSE too. The "(N remaining)"
-count on the button is dropped — every implementation of it that was
-considered depends on knowing the true total against a moving target (new
-messages keep arriving), which is exactly the kind of bookkeeping this
-revision is removing on purpose; the button now just reads "Load older
-messages". Second pass: the service-layer signature change
-(`getMessagesByProjectId`) and its sole caller (the route) were
-originally two separate tasks; merged into one, because a commit changing
-only the service function leaves the still-unmodified route calling it
-with the old numeric-offset argument shape — a `tsc --noEmit` failure
-that TypeScript-strict (a Global Constraint below) would catch, sitting
-in a state a task reviewer would be asked to approve. The two files
-cannot be landed independently without breaking the build, so they are
-not independently reviewable and must be one task.
+**Revision note:** This plan was red-teamed three times before execution.
 
-**Spec-sync:** Not needed as a separate task. The design gate already
-recorded this as decision 12 in `spec.md`'s decision table. No section of
-the spec describing *state* (§3 Architecture, §4 Data model) documents the
-old offset-based pagination contract, so nothing there is made false by
-this change.
+*Pass 1* found the first draft's client-side bookkeeping (an offset
+counter reconstructed from array lengths, a "remaining count" derived
+from a one-time total) reintroduced the same class of bug it was meant to
+fix, plus a project-switch reset gap and an unguarded double-click on
+"load older". Fixed by: trusting the server's `hasMore` directly instead
+of any client running count, a composite `(createdAt, id)` cursor to
+eliminate same-millisecond ties, adding the new refs to the existing
+project-switch reset effect, and an in-flight guard on "load older". The
+"(N remaining)" count on the button was dropped — every implementation of
+it considered depends on knowing the true total against a moving target
+(new messages keep arriving), exactly the bookkeeping being removed; the
+button now just reads "Load older messages".
+
+*Pass 2 (self-review)* found the service-layer signature change
+(`getMessagesByProjectId`) and its sole caller (the route) were two
+separate tasks; merged into one Task 1, because a commit changing only
+the service function leaves the still-unmodified route calling it with
+the old numeric-offset argument shape — a `tsc --noEmit` failure that
+TypeScript-strict (a Global Constraint below) would catch, sitting in a
+state a task reviewer would be asked to approve. The two files cannot be
+landed independently without breaking the build.
+
+*Pass 3* found that pass 1's "stick to bottom only if already there"
+guard measured scroll position *inside* the effect that reacts to
+`messages` changing — i.e. after React had already committed the new,
+taller content, so the measurement always saw the *grown* height and
+almost never reported "near bottom", breaking auto-scroll for ordinary
+new messages (a regression versus the original always-scroll behavior).
+It also found the near-bottom guard alone does nothing about the
+*prepend* jump from "load older" itself — the button sits at
+`scrollTop === 0`, exactly where CSS scroll anchoring is specified to be
+suppressed, so relying on it there was unsound. Fixed by: tracking
+"should stay pinned to bottom" in a ref (`stickToBottomRef`) updated only
+by the container's own `onScroll` handler (never by post-hoc measurement
+inside a `messages` effect), and restoring `scrollTop` explicitly after
+"load older" prepends content, using `flushSync` to force a synchronous
+commit so the before/after `scrollHeight` diff is accurate.
+`scrollToBottom` also switched from `behavior: 'smooth'` to `'auto'`,
+because a smooth scroll's own intermediate `scroll` events would
+otherwise feed back into `stickToBottomRef` and intermittently report
+"not at bottom" mid-animation. This pass also found the pure-helpers
+task (`getPageCursor`) was defensively re-deriving an ordering the
+service layer already guarantees (Task 1's `orderBy` is exactly what
+`ChatLog.tsx` relies on) — simplified from a full min-scan to reading the
+batch's last element, and `shouldStickToBottom` was relocated from
+`lib/serializers/client/` (message-normalization code) to `lib/utils/`
+(where it actually belongs — a generic DOM-scroll predicate). It also
+found the manual-verification step mixed checks a headless implementer
+can actually run (pagination/cursor correctness — fully checkable over
+HTTP with `curl`/`fetch`, no browser needed) with checks that gen­uinely
+need a browser (visual scroll-jump, double-click race, project-switch
+UI); these are now split, with the browser-only checks explicitly flagged
+per `spec.md` §8's existing convention for UI work this repo can't
+automate, rather than left for an implementer to silently claim as done.
+Finally, `spec.md` decision 12 was corrected directly (not deferred to a
+plan task) once the cursor became composite and `hasMore`'s semantics
+changed — the design record `.flow/specs/2026-09-09-chat-history-pagination-design.md`
+is left as-is (a dated record of that session's deliberation, not meant
+to be revised), but the decision table row is the current, accurate
+contract.
+
+**Spec-sync:** Already done — `spec.md` decision 12 reflects the composite
+`(createdAt, id)` cursor and the `hasMore` full-page semantics as of this
+plan's current revision. No other section of the spec describing *state*
+(§3 Architecture, §4 Data model) documents the pagination contract, so
+nothing else there is made false by this change.
 
 ## Global Constraints
 
@@ -92,23 +137,29 @@ this change.
   `hasMore` becomes a full-page check instead of an offset+count
   comparison. Changed in the same task as the service file above — see
   the Revision note on why these two aren't split.
-- **Create** `lib/serializers/client/pagination.ts` — two pure helpers
-  used by `ChatLog.tsx`: `getPageCursor` (derive the next composite
-  "before" cursor from a batch of messages, correctly handling
-  same-millisecond ties) and `shouldStickToBottom` (the near-bottom
-  scroll heuristic, as a pure function of DOM measurements so it's
-  testable without a DOM).
+- **Create** `lib/serializers/client/pagination.ts` — `getPageCursor`,
+  deriving the next composite "before" cursor from a batch of messages.
+  Lives alongside `chat.ts`/`tool-messages.ts` because, like them, it's
+  message-normalization logic.
+- **Create** `lib/utils/scroll.ts` — `shouldStickToBottom`, the
+  near-bottom scroll heuristic, as a pure function of DOM measurements so
+  it's testable without a DOM. Lives in `lib/utils/` (alongside
+  `random-id.ts` and friends) rather than `lib/serializers/client/`
+  because it's a generic scroll predicate, not message-normalization
+  logic — it has nothing to do with `ChatMessage` shapes.
 - **Modify** `components/chat/ChatLog.tsx` — `loadChatHistory` fetches
   newest-first and seeds the pagination cursor exactly once, from real
   data; `loadOlderMessages` pages via the cursor (not `messages.length`),
-  trusts the server's `hasMore` directly, and guards against overlapping
-  in-flight requests; the auto-scroll effect switches to the near-bottom
-  heuristic; the project-switch reset effect is extended to reset the new
-  refs so switching projects doesn't leak one project's pagination
-  cursor into another's fetches.
+  trusts the server's `hasMore` directly, guards against overlapping
+  in-flight requests, and restores scroll position after prepending older
+  messages; a `stickToBottomRef` (updated only by the container's
+  `onScroll` handler) replaces the old always-scroll effect; the
+  project-switch reset effect is extended to reset the new refs so
+  switching projects doesn't leak one project's pagination cursor into
+  another's fetches.
 - **Create** `tests/services/message-pagination.test.ts`,
   `tests/api/messages-route-pagination.test.ts`,
-  `tests/serializers/pagination.test.ts`.
+  `tests/serializers/pagination.test.ts`, `tests/utils/scroll.test.ts`.
 
 Task order: service layer + route together first (Task 1, since they
 can't land independently — see Revision note), then the pure client
@@ -590,55 +641,64 @@ git commit -m "fix: composite-cursor pagination in message service and route"
 
 **Files:**
 - Create: `lib/serializers/client/pagination.ts`
+- Create: `lib/utils/scroll.ts`
 - Test: `tests/serializers/pagination.test.ts`
+- Test: `tests/utils/scroll.test.ts`
 
 **Interfaces:**
 - Produces:
   - `getPageCursor(messages: { createdAt?: string | null; id?: string | null }[]): { createdAt: string; id: string } | null`
   - `shouldStickToBottom(scrollHeight: number, scrollTop: number, clientHeight: number, threshold?: number): boolean`
-  Task 3 calls both from `ChatLog.tsx`.
+  Task 3 imports `getPageCursor` from `@/lib/serializers/client/pagination`
+  and `shouldStickToBottom` from `@/lib/utils/scroll`.
 
-- [ ] **Step 1: Write the failing test**
+`getPageCursor` trusts the ordering Task 1's `getMessagesByProjectId`
+already guarantees (`orderBy: [{ createdAt: order }, { id: order }]`):
+for `order=desc`, the batch the route returns is already sorted newest
+to oldest, so the row this batch's "next page" cursor should point at —
+the oldest row in the batch — is simply its last element. This is
+narrower than "find the minimum regardless of input order" (which the
+first version of this helper did); it's correct precisely because it
+relies on a contract Task 1 established, not because it re-derives the
+ordering defensively.
+
+- [ ] **Step 1: Write the failing tests**
 
 Create `tests/serializers/pagination.test.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { getPageCursor, shouldStickToBottom } from '@/lib/serializers/client/pagination';
+import { getPageCursor } from '@/lib/serializers/client/pagination';
 
 describe('getPageCursor', () => {
   it('zwraca null dla pustej listy', () => {
     expect(getPageCursor([])).toBeNull();
   });
 
-  it('zwraca najwcześniejszy wpis (po createdAt) niezależnie od kolejności', () => {
+  it('zwraca (createdAt, id) ostatniego elementu partii', () => {
+    // Task 1's route always returns batches pre-sorted by (createdAt, id)
+    // in the requested order — for order=desc, the last element is the
+    // oldest row, exactly the cursor the next "load older" call needs.
     const messages = [
       { createdAt: '2026-01-05T00:00:00.000Z', id: 'c' },
-      { createdAt: '2026-01-01T00:00:00.000Z', id: 'a' },
       { createdAt: '2026-01-03T00:00:00.000Z', id: 'b' },
+      { createdAt: '2026-01-01T00:00:00.000Z', id: 'a' },
     ];
     expect(getPageCursor(messages)).toEqual({ createdAt: '2026-01-01T00:00:00.000Z', id: 'a' });
   });
 
-  it('przy remisie na createdAt wybiera najmniejsze id jako tiebreaker', () => {
-    const tied = '2026-01-05T00:00:00.000Z';
-    const messages = [
-      { createdAt: tied, id: 'm3' },
-      { createdAt: tied, id: 'm1' },
-      { createdAt: tied, id: 'm2' },
-    ];
-    expect(getPageCursor(messages)).toEqual({ createdAt: tied, id: 'm1' });
-  });
-
-  it('pomija wpisy bez createdAt lub id', () => {
-    const messages = [
-      { createdAt: null, id: 'x' },
-      { createdAt: '2026-01-02T00:00:00.000Z', id: 'valid' },
-      { createdAt: '2026-01-01T00:00:00.000Z' },
-    ];
-    expect(getPageCursor(messages)).toEqual({ createdAt: '2026-01-02T00:00:00.000Z', id: 'valid' });
+  it('zwraca null, gdy ostatniemu elementowi brakuje createdAt lub id', () => {
+    expect(getPageCursor([{ createdAt: '2026-01-01T00:00:00.000Z' }])).toBeNull();
+    expect(getPageCursor([{ id: 'a' }])).toBeNull();
   });
 });
+```
+
+Create `tests/utils/scroll.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { shouldStickToBottom } from '@/lib/utils/scroll';
 
 describe('shouldStickToBottom', () => {
   it('true, gdy kontener jest przewinięty blisko dołu', () => {
@@ -657,13 +717,13 @@ describe('shouldStickToBottom', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `npx vitest run tests/serializers/pagination.test.ts`
-Expected: FAIL — `lib/serializers/client/pagination.ts` does not exist yet
-(module not found).
+Run: `npx vitest run tests/serializers/pagination.test.ts tests/utils/scroll.test.ts`
+Expected: FAIL — neither `lib/serializers/client/pagination.ts` nor
+`lib/utils/scroll.ts` exists yet (module not found).
 
-- [ ] **Step 3: Write the minimal implementation**
+- [ ] **Step 3: Write the minimal implementations**
 
 Create `lib/serializers/client/pagination.ts`:
 
@@ -678,28 +738,19 @@ export interface PageCursor {
   id: string;
 }
 
+// Trusts the ordering lib/services/message.ts's getMessagesByProjectId
+// already guarantees for a desc-ordered batch: the last element is the
+// oldest row, i.e. exactly this batch's "next page" cursor.
 export const getPageCursor = (messages: PageCursorSource[]): PageCursor | null => {
-  let cursor: PageCursor | null = null;
-
-  for (const message of messages) {
-    if (!message.createdAt || !message.id) continue;
-
-    if (cursor === null) {
-      cursor = { createdAt: message.createdAt, id: message.id };
-      continue;
-    }
-
-    const currentTime = new Date(message.createdAt).getTime();
-    const cursorTime = new Date(cursor.createdAt).getTime();
-
-    if (currentTime < cursorTime || (currentTime === cursorTime && message.id < cursor.id)) {
-      cursor = { createdAt: message.createdAt, id: message.id };
-    }
-  }
-
-  return cursor;
+  const last = messages[messages.length - 1];
+  if (!last?.createdAt || !last?.id) return null;
+  return { createdAt: last.createdAt, id: last.id };
 };
+```
 
+Create `lib/utils/scroll.ts`:
+
+```ts
 export const shouldStickToBottom = (
   scrollHeight: number,
   scrollTop: number,
@@ -710,33 +761,42 @@ export const shouldStickToBottom = (
 };
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `npx vitest run tests/serializers/pagination.test.ts`
-Expected: PASS (7 tests).
+Run: `npx vitest run tests/serializers/pagination.test.ts tests/utils/scroll.test.ts`
+Expected: PASS (6 tests total).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/serializers/client/pagination.ts tests/serializers/pagination.test.ts
+git add lib/serializers/client/pagination.ts lib/utils/scroll.ts tests/serializers/pagination.test.ts tests/utils/scroll.test.ts
 git commit -m "feat: add pure cursor/scroll-guard helpers for chat pagination"
 ```
 
 ---
 
-### Task 3: Wire `ChatLog.tsx` to newest-first loading, composite-cursor pagination, and near-bottom auto-scroll
+### Task 3: Wire `ChatLog.tsx` to newest-first loading, composite-cursor pagination, and correct scroll behavior
 
 **Files:**
 - Modify: `components/chat/ChatLog.tsx`
 
 **Interfaces:**
-- Consumes: `getPageCursor`, `shouldStickToBottom` from `@/lib/serializers/client/pagination` (Task 2); the route's `order`/`before`/`beforeId` query params and `pagination.hasMore` full-page semantics (Task 1).
-- Produces: no new exports — this is the component wiring; behavior is
-  verified manually (see Step 8). This repo has no component-level test
-  harness (`@testing-library/react`/jsdom are not installed — confirmed:
-  `package.json` only lists `vitest`), and `spec.md` §8 documents that UI
-  logic without unit-testable seams relies on manual verification rather
-  than being silently treated as covered.
+- Consumes: `getPageCursor` from `@/lib/serializers/client/pagination`,
+  `shouldStickToBottom` from `@/lib/utils/scroll` (Task 2); the route's
+  `order`/`before`/`beforeId` query params and `pagination.hasMore`
+  full-page semantics (Task 1); `flushSync` from `react-dom` (this
+  project's React is 19.2.8, where `flushSync` is a stable, documented
+  API — not new/experimental).
+- Produces: no new exports — this is the component wiring. Its
+  correctness is split across two kinds of verification (Step 8): the
+  pagination/cursor logic is checked over plain HTTP, which a headless
+  implementer can run directly; the visual scroll behavior needs a real
+  browser and is explicitly flagged rather than assumed done — this repo
+  has no component-level test harness (`@testing-library/react`/jsdom are
+  not installed — confirmed: `package.json` only lists `vitest`), and
+  `spec.md` §8 already documents that UI logic without unit-testable
+  seams relies on flagged manual verification rather than being silently
+  treated as covered.
 
 This task touches several non-adjacent spots in the same file. Do them
 in this order. Read the whole file once before starting — some line
@@ -744,13 +804,23 @@ numbers below will have shifted slightly by the time you reach later
 steps in this same task, since earlier steps in it edit the file too;
 re-locate each snippet by its surrounding code, not by line number alone.
 
-- [ ] **Step 1: Add the new import, refs, and state**
+- [ ] **Step 1: Add the new imports, refs, and state**
 
-Add a new import after the existing `tool-messages` import block (after
-`components/chat/ChatLog.tsx:18`):
+Add two new imports after the existing `tool-messages` import block
+(after `components/chat/ChatLog.tsx:18`):
 
 ```ts
-import { getPageCursor, shouldStickToBottom } from '@/lib/serializers/client/pagination';
+import { getPageCursor } from '@/lib/serializers/client/pagination';
+import { shouldStickToBottom } from '@/lib/utils/scroll';
+```
+
+Add `flushSync` to the React import at the very top of the file — this
+one is from `react-dom`, not `react`, so it's a separate import line, not
+an addition to the existing `import React, { ... } from 'react';` (line
+2):
+
+```ts
+import { flushSync } from 'react-dom';
 ```
 
 Next to the existing `logsEndRef` declaration (`const logsEndRef =
@@ -774,7 +844,16 @@ Replace with:
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const oldestLoadedCursorRef = useRef<{ createdAt: string; id: string } | null>(null);
   const paginationInitializedRef = useRef(false);
-  const hasAutoScrolledRef = useRef(false);
+  // Whether the view should auto-follow new messages. Starts true (a
+  // freshly-mounted project should open at the bottom of its history)
+  // and is updated ONLY by the container's own onScroll handler (Step 6)
+  // — never by measuring the DOM inside the effect that reacts to
+  // `messages` changing, because that effect runs after React has
+  // already committed the new, taller content: at that point the
+  // container's scrollHeight has already grown, so "distance from
+  // bottom" would almost always read as "far", even when the user was
+  // at the bottom right before the update.
+  const stickToBottomRef = useRef(true);
 ```
 
 (`totalMessageCount` is removed along with the "(N remaining)" label in
@@ -810,7 +889,7 @@ Add the new refs/state to it:
     visibleToolMessageIdsRef.current.clear();
     oldestLoadedCursorRef.current = null;
     paginationInitializedRef.current = false;
-    hasAutoScrolledRef.current = false;
+    stickToBottomRef.current = true;
     setHasMoreMessages(false);
     setIsLoadingOlder(false);
   }, [projectId]);
@@ -822,9 +901,33 @@ messages" never appears for the new project; switching the other way
 carries the old project's cursor into a fetch for the new project's
 messages.
 
-- [ ] **Step 3: Replace the auto-scroll effect with a near-bottom guard**
+- [ ] **Step 3: Fix the auto-scroll effect and switch `scrollToBottom` to an instant jump**
 
-Find (currently line 863):
+Find `scrollToBottom` (currently lines 815-817):
+
+```ts
+  const scrollToBottom = () => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+```
+
+Replace with:
+
+```ts
+  const scrollToBottom = () => {
+    logsEndRef.current?.scrollIntoView({ behavior: "auto" });
+  };
+```
+
+(`behavior: "auto"` instead of `"smooth"`: a smooth scroll fires a
+sequence of intermediate native `scroll` events while it animates, each
+of which would update `stickToBottomRef` via the `onScroll` handler added
+in Step 6 — reporting "not at bottom" for most of the animation's
+duration and breaking the sticky-follow behavior for the very next
+message that arrives mid-animation. An instant jump has no intermediate
+frames, so this can't happen.)
+
+Find the auto-scroll effect (currently line 863):
 
 ```ts
   useEffect(scrollToBottom, [messages]);
@@ -835,25 +938,17 @@ Replace with:
 ```ts
   useEffect(() => {
     if (messages.length === 0) return;
-    const container = logsContainerRef.current;
-    const nearBottom = container
-      ? shouldStickToBottom(container.scrollHeight, container.scrollTop, container.clientHeight)
-      : true;
-    if (!hasAutoScrolledRef.current || nearBottom) {
+    if (stickToBottomRef.current) {
       scrollToBottom();
-      hasAutoScrolledRef.current = true;
     }
   }, [messages]);
 ```
 
-This scrolls to bottom unconditionally the first time a project's
-messages render (`!hasAutoScrolledRef.current`, covering the initial
-load), and after that only when the user was already near the bottom —
-so live updates while watching the agent work still auto-scroll, but
-"load older" (which the user only reaches by scrolling up) and any
-poll/SSE update that arrives while reading history no longer yank the
-view back down. Leave the `scrollToBottom` function itself (just above,
-currently lines 815-817) unchanged.
+This effect only *decides whether* to scroll — it never measures the
+DOM itself. The measurement that decides `stickToBottomRef` happens in
+the container's `onScroll` handler (Step 6), which only fires on actual
+user/programmatic scrolling, not on content growing underneath an
+unchanged `scrollTop`.
 
 - [ ] **Step 4: Rewrite `loadChatHistory` to fetch newest-first and seed the cursor once**
 
@@ -920,7 +1015,7 @@ first response — a brand-new project with no messages yet — must leave
 `paginationInitializedRef` false, so seeding still happens once real
 messages exist on a later poll).
 
-- [ ] **Step 5: Rewrite `loadOlderMessages` to page via the composite cursor, trust the server's `hasMore`, and guard against overlapping requests**
+- [ ] **Step 5: Rewrite `loadOlderMessages` to page via the composite cursor, trust the server's `hasMore`, guard against overlapping requests, and preserve scroll position**
 
 Find the current `loadOlderMessages` (currently lines 1055-1086) and
 replace it with:
@@ -958,7 +1053,24 @@ replace it with:
         }
 
         if (normalized.length > 0) {
-          setMessages((prev) => integrateMessages(prev, normalized));
+          // Prepending above the current scroll position shifts
+          // everything below it down. The button that triggers this is
+          // at scrollTop === 0, exactly the offset where CSS scroll
+          // anchoring is specified to be suppressed, so it can't be
+          // relied on here — restore the position explicitly instead.
+          // flushSync forces the state update to commit synchronously so
+          // the "after" measurement below is accurate (a normal
+          // setMessages call wouldn't have updated the DOM yet by the
+          // time the next line runs).
+          const container = logsContainerRef.current;
+          const previousScrollHeight = container?.scrollHeight ?? 0;
+          const previousScrollTop = container?.scrollTop ?? 0;
+          flushSync(() => {
+            setMessages((prev) => integrateMessages(prev, normalized));
+          });
+          if (container) {
+            container.scrollTop = previousScrollTop + (container.scrollHeight - previousScrollHeight);
+          }
         }
       }
     } catch (error) {
@@ -976,9 +1088,11 @@ response's `pagination.hasMore` (the server already computed "did this
 page come back full" — Task 1's whole point); a new `isLoadingOlder`
 guard (checked at the top and set for the duration of the fetch) means a
 second click while a request is in flight is a no-op instead of issuing
-a duplicate fetch with the same cursor.
+a duplicate fetch with the same cursor; the `setMessages` call is now
+wrapped in `flushSync` with an explicit scroll-position restore
+immediately after it.
 
-- [ ] **Step 6: Wire the container ref and simplify the button**
+- [ ] **Step 6: Wire the container ref, add the `onScroll` handler, and simplify the button**
 
 Find the scrollable messages container (currently line 1577):
 
@@ -989,7 +1103,14 @@ Find the scrollable messages container (currently line 1577):
 Replace with:
 
 ```tsx
-      <div ref={logsContainerRef} className="flex-1 overflow-y-auto px-8 py-3 space-y-2 custom-scrollbar ">
+      <div
+        ref={logsContainerRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          stickToBottomRef.current = shouldStickToBottom(el.scrollHeight, el.scrollTop, el.clientHeight);
+        }}
+        className="flex-1 overflow-y-auto px-8 py-3 space-y-2 custom-scrollbar "
+      >
 ```
 
 Find the "load older messages" button (currently lines 1596-1607):
@@ -1043,87 +1164,124 @@ Run: `npm run lint`
 Expected: no errors.
 
 Run: `npm test`
-Expected: all tests pass, including the three new suites from Tasks 1-2.
+Expected: all tests pass, including the four new suites from Tasks 1-2.
 
-- [ ] **Step 8: Manual verification with the dev server**
+- [ ] **Step 8: Verify — HTTP-level checks (run these), browser checks (flag these)**
 
-This project has no browser/component test harness (see Interfaces note
-above), so this step is a documented manual check rather than an
-automated one. Cover both the pagination fix and the two bugs the
-red-team pass found in an earlier draft (empty-project seeding, and
-project-switch state leaking) — a happy-path-only check would miss both.
+This step is split deliberately. Steps 8a and 8b below need only `curl`/
+`fetch` against the running dev server — an implementer without browser
+access can run and self-verify these, and they cover the pagination
+logic (the bug actually reported). Step 8c needs a real browser for the
+visual/interaction behavior; **do not claim it as verified unless you
+actually used a browser** — report it as unverified instead. This split
+exists because an earlier draft of this task asked for browser checks a
+headless implementer cannot perform, and the two most serious bugs found
+by plan review were exactly the kind Step 8c would have caught but a
+skipped/rubber-stamped check would not.
 
-1. Start the dev server: `npm run dev`.
-2. **Empty/new project check:** create a brand-new project with no chat
-   messages yet, open its chat, and send exactly one message. Confirm
-   "Load older messages" does **not** appear (there's nothing older to
-   load — this is the case an earlier plan draft got wrong: it could show
-   a permanently-broken "load older" button here).
-3. **Batch-loading check:** pick or seed a project with a long history —
-   at least 250 messages, so both the initial 200-message window and at
-   least one "load older" click are exercised. If none exists, seed one:
-   ```bash
-   node -e "
-   const { PrismaClient } = require('@prisma/client');
-   const prisma = new PrismaClient();
-   (async () => {
-     const project = await prisma.project.findFirst();
-     if (!project) { console.error('No project found — create one in the UI first.'); process.exit(1); }
-     const base = Date.now() - 300 * 60000;
-     for (let i = 0; i < 300; i++) {
-       await prisma.message.create({
-         data: {
-           projectId: project.id,
-           role: i % 2 === 0 ? 'user' : 'assistant',
-           messageType: 'chat',
-           content: 'seed message ' + i,
-           createdAt: new Date(base + i * 60000),
-         },
-       });
-     }
-     console.log('Seeded 300 messages for project', project.id);
-   })();
-   "
-   ```
-   Open that project's chat. Confirm the messages shown are the **most
-   recent** ones (e.g. "seed message 299", not "seed message 0"), and
-   "Load older messages" is visible.
-4. Scroll up (away from the bottom), then click "Load older messages"
-   once. Confirm: (a) a full batch of earlier messages appears (not just
-   one), (b) the view does **not** jump to the bottom — you stay roughly
-   where you were reading. Click it again if more remain; confirm it
-   keeps making progress (not repeating the same messages) until the
-   button disappears at the true start of history ("seed message 0").
-5. **Double-click check:** with "Load older messages" visible again (or
-   using a fresh seed), click it twice in quick succession. Confirm you
-   don't lose a batch of messages (i.e. the second click doesn't
-   overwrite/skip while the first is still in flight) — the button
-   should read "Loading..." and be disabled between the click and the
-   response.
-6. **Project-switch check:** with the seeded project fully paged back
-   (button hidden), switch to a different project in the sidebar, then
-   switch back. Confirm "Load older messages" state is correct for
-   whichever project is active (not carried over from the other one).
-7. **Live-scroll check:** while an agent turn is actively streaming
-   output and you are scrolled to the bottom watching it, confirm the
-   view keeps auto-scrolling with new content (this must still work —
-   Step 3 only stops the *forced* scroll when you're not already near
-   the bottom).
-8. Clean up the seeded rows:
-   ```bash
-   node -e "
-   const { PrismaClient } = require('@prisma/client');
-   const prisma = new PrismaClient();
-   prisma.message.deleteMany({ where: { content: { startsWith: 'seed message ' } } }).then((r) => console.log('Deleted', r.count));
-   "
-   ```
+**8a. Start the dev server** (leave it running in the background for the
+rest of this step): `npm run dev`.
 
-If any of steps 2-7 doesn't hold, this task is not done — fix the wiring
-before moving on, don't just note the discrepancy.
+**8b. HTTP-level pagination check.** Run this script (adjust
+`CLAUDABLE_BASE_URL` if the dev server isn't on the default port):
+
+```bash
+CLAUDABLE_BASE_URL="${CLAUDABLE_BASE_URL:-http://localhost:3000}" node -e "
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+const BASE = process.env.CLAUDABLE_BASE_URL;
+
+(async () => {
+  const emptyProject = await prisma.project.create({ data: { name: 'pagination-check-empty' } });
+  const emptyRes = await fetch(\`\${BASE}/api/chat/\${emptyProject.id}/messages?limit=200&order=desc\`);
+  const emptyBody = await emptyRes.json();
+  if (emptyBody.data.length !== 0 || emptyBody.pagination.hasMore !== false) {
+    throw new Error('Empty project check failed: ' + JSON.stringify(emptyBody.pagination));
+  }
+  console.log('OK: empty project returns no messages, hasMore=false');
+
+  // 337 messages: not a multiple of the 100-per-click batch size, so the
+  // final page is a genuine partial page (37 messages) rather than a
+  // boundary where a click returns 0 and the button just vanishes.
+  const project = await prisma.project.create({ data: { name: 'pagination-check-seeded' } });
+  const base = Date.now() - 337 * 60000;
+  for (let i = 0; i < 337; i++) {
+    await prisma.message.create({
+      data: {
+        projectId: project.id,
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        messageType: 'chat',
+        content: 'seed message ' + i,
+        createdAt: new Date(base + i * 60000),
+      },
+    });
+  }
+
+  const page1Res = await fetch(\`\${BASE}/api/chat/\${project.id}/messages?limit=200&order=desc\`);
+  const page1 = await page1Res.json();
+  if (page1.data.length !== 200) throw new Error('Expected 200 messages, got ' + page1.data.length);
+  if (page1.data[0].content !== 'seed message 336') throw new Error('First page is not newest-first: ' + page1.data[0].content);
+  if (page1.pagination.hasMore !== true) throw new Error('Expected hasMore=true after first page');
+  console.log('OK: initial page is newest-first (200 messages), hasMore=true');
+
+  const oldest1 = page1.data[page1.data.length - 1];
+  const page2Res = await fetch(\`\${BASE}/api/chat/\${project.id}/messages?limit=100&order=desc&before=\${encodeURIComponent(oldest1.createdAt)}&beforeId=\${oldest1.id}\`);
+  const page2 = await page2Res.json();
+  if (page2.data.length !== 100) throw new Error('Expected 100 older messages, got ' + page2.data.length);
+  if (page2.data.some((m) => page1.data.some((p) => p.id === m.id))) throw new Error('Second page overlaps the first — cursor is wrong');
+  if (page2.pagination.hasMore !== true) throw new Error('Expected hasMore=true after second page (37 remain)');
+  console.log('OK: second page is 100 new, non-overlapping messages, hasMore=true');
+
+  const oldest2 = page2.data[page2.data.length - 1];
+  const page3Res = await fetch(\`\${BASE}/api/chat/\${project.id}/messages?limit=100&order=desc&before=\${encodeURIComponent(oldest2.createdAt)}&beforeId=\${oldest2.id}\`);
+  const page3 = await page3Res.json();
+  if (page3.data.length !== 37) throw new Error('Expected 37 final messages, got ' + page3.data.length);
+  if (page3.data[page3.data.length - 1].content !== 'seed message 0') throw new Error('Last page does not reach the true start of history');
+  if (page3.pagination.hasMore !== false) throw new Error('Expected hasMore=false at the true start of history');
+  console.log('OK: final page reaches seed message 0, hasMore=false');
+
+  await prisma.message.deleteMany({ where: { projectId: { in: [emptyProject.id, project.id] } } });
+  await prisma.project.deleteMany({ where: { id: { in: [emptyProject.id, project.id] } } });
+  console.log('Cleaned up test projects');
+})().catch((err) => { console.error('FAILED:', err.message); process.exit(1); });
+"
+```
+
+Expected: all five `OK:` lines print, script exits 0. If it fails,
+Task 3 is not done — this is exercising the exact bug reported (batches
+loading correctly, not one message at a time; the initial view being the
+newest messages, not the oldest).
+
+**8c. Browser-only checks — flag these explicitly if you cannot run
+them; do not mark them done without actually using a browser.**
+
+1. Open the chat UI for a project. Scroll up (away from the bottom) while
+   the conversation is active, then click "Load older messages". Confirm
+   the view does **not** jump — you stay roughly where you were reading,
+   with the newly-loaded messages now above you.
+2. With "Load older messages" visible, click it twice in quick
+   succession. Confirm you don't lose or double-load a batch — the
+   button should read "Loading..." and be disabled between the click and
+   the response.
+3. With a project fully paged back (button hidden), switch to a
+   different project, then switch back. Confirm "Load older messages"
+   state is correct for whichever project is active (not carried over
+   from the other one).
+4. While an agent turn is actively streaming output and you are
+   scrolled to the bottom watching it, confirm the view keeps
+   auto-scrolling with new content.
+5. Scroll up during an active streaming turn and confirm the view does
+   **not** auto-scroll while you're reading — new content should
+   arrive without yanking your position, until you scroll back down
+   yourself.
+
+If you could not run 8c (no browser available in this environment), say
+so explicitly in this task's report rather than marking it done — per
+`spec.md` §8's existing convention for exactly this situation.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 git add components/chat/ChatLog.tsx
-git commit -m "fix: load newest chat messages first, page older via composite cursor, fix scroll-to-bottom on load-older/poll/SSE"
+git commit -m "fix: load newest chat messages first, page older via composite cursor, fix scroll-to-bottom and prepend jump"
 ```
