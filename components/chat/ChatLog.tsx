@@ -293,6 +293,16 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
     parentHandlersRef.current = { onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage };
   }, [onSessionStatusChange, onProjectStatusUpdate, onAddUserMessage]);
 
+  // Tracks the latest `projectId` so an in-flight async handler (e.g.
+  // loadOlderMessages) can tell, once its response resolves, whether the
+  // user has since switched to a different project — unlike the `projectId`
+  // closure variable, which stays frozen at the value it had when the
+  // request was issued.
+  const projectIdRef = useRef(projectId);
+  useEffect(() => {
+    projectIdRef.current = projectId;
+  }, [projectId]);
+
   const hasStreamingMessageRef = useRef(false);
   useEffect(() => {
     hasStreamingMessageRef.current = messages.some(
@@ -1081,6 +1091,14 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
   const loadOlderMessages = useCallback(async () => {
     if (!projectId || !hasMoreMessages || !oldestLoadedCursorRef.current || isLoadingOlder) return;
 
+    // Freeze which project this specific request is for. `projectId` here
+    // is the closure's value at call time; if the user switches projects
+    // before the fetch resolves, `projectIdRef.current` will have moved on
+    // while this stays put, so comparing the two after the await tells us
+    // the response is stale and must not be applied to the now-current
+    // project's state.
+    const requestProjectId = projectId;
+
     setIsLoadingOlder(true);
     try {
       const cursor = oldestLoadedCursorRef.current;
@@ -1090,6 +1108,13 @@ export default function ChatLog({ projectId, onSessionStatusChange, onProjectSta
 
       if (response.ok) {
         const payload = await response.json();
+        if (projectIdRef.current !== requestProjectId) {
+          // The user switched projects while this fetch was in flight.
+          // Applying this response now would set hasMoreMessages/cursor
+          // from the old project's data and merge its messages into the
+          // new project's now-current state.
+          return;
+        }
         const chatMessages = Array.isArray(payload)
           ? payload
           : payload?.data ?? payload?.messages ?? [];
