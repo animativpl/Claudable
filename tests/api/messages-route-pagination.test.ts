@@ -98,6 +98,8 @@ describe('GET /api/chat/[project_id]/messages — paginacja kursorowa', () => {
     const response = await callGet('?limit=50');
     const body = await response.json();
 
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
     expect(body.totalCount).toBeUndefined();
   });
 });
